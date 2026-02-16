@@ -47,5 +47,30 @@ router.post("/verify-otp", (req, res) => {
   });
 });
 
-module.exports = router;
+router.post("/google", (req, res) => {
+  const { email, name } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
 
+  const user = {
+    id: "u_google_1001",
+    name: name || "Google User",
+    email: String(email),
+    societyName: "Skyline Apartments",
+    tower: "Tower B",
+    flat: "1204",
+  };
+
+  const token = jwt.sign(user, process.env.JWT_SECRET || "dev-secret", {
+    expiresIn: "7d",
+  });
+
+  return res.json({
+    message: "Google login successful",
+    token,
+    user,
+  });
+});
+
+module.exports = router;

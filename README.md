@@ -18,4 +18,12 @@
   - body: `{ "mobile": "9876543210", "otp": "123456" }`
 - `GET /api/dashboard`
   - header: `Authorization: Bearer <token>`
-
+- `POST /api/auth/google`
+  - body: `{ "email": "user@gmail.com", "name": "User Name" }`
+- `GET /api/features/maintenance`
+- `GET /api/features/visitors`
+- `GET /api/features/notices`
+- `GET /api/features/complaints`
+- `GET /api/features/updates`
+- `GET /api/features/stats`
+  - all require header: `Authorization: Bearer <token>`
