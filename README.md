@@ -9,12 +9,28 @@
 4. Run:
    - `npm run dev`
 
+## OTP behavior
+
+- Current mode is mock OTP verification using `FAKE_OTP` (default: `123456`).
+- Configure in `.env`:
+  - `OTP_MODE=mock`
+  - `FAKE_OTP=123456`
+- For future SMS integration, switch `OTP_MODE=sms` and implement provider logic in `src/services/otp.service.js` placeholder blocks.
+- OTP send rate limits (keyed by `x-device-id + mobile`):
+  - Minimum 1 minute gap between sends
+  - Maximum 3 sends within a 30 minute window
+  - Attempts automatically reset after 30 minutes
+
 ## API
 
 - `GET /api/health`
 - `POST /api/auth/request-otp`
   - body: `{ "mobile": "9876543210" }`
 - `POST /api/auth/verify-otp`
+  - body: `{ "mobile": "9876543210", "otp": "123456" }`
+- `POST /api/auth/request-registration-otp`
+  - body: `{ "mobile": "9876543210" }`
+- `POST /api/auth/verify-registration-otp`
   - body: `{ "mobile": "9876543210", "otp": "123456" }`
 - `GET /api/dashboard`
   - header: `Authorization: Bearer <token>`
