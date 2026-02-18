@@ -29,6 +29,7 @@ const removeById = (list, id) => {
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_PROFILE_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const resolveUserFilterFromToken = (tokenUser = {}) => {
   if (Number.isFinite(Number(tokenUser.userId))) {
@@ -43,6 +44,21 @@ const resolveUserFilterFromToken = (tokenUser = {}) => {
     return { _id: id };
   }
   return null;
+};
+
+const getBase64Payload = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const base64 = text.includes(",") ? text.split(",").pop() : text;
+  return String(base64 || "").trim();
+};
+
+const getDecodedByteSize = (base64Value = "") => {
+  try {
+    return Buffer.from(base64Value, "base64").length;
+  } catch (_) {
+    return 0;
+  }
 };
 
 // Dashboard
@@ -732,6 +748,7 @@ router.get("/profile", async (req, res) => {
     email: user.email || "",
     emergencyContactName: user.emergencyContactName || "",
     emergencyContactPhone: user.emergencyContactPhone || "",
+    profilePhoto: user.profilePhoto || "",
     familyMembers: fallbackProfile.familyMembers || [],
   };
   return res.json({ item });
@@ -773,6 +790,10 @@ router.put("/profile", async (req, res) => {
       req.body.emergencyContactPhone !== undefined
         ? String(req.body.emergencyContactPhone || "").trim()
         : undefined,
+    profilePhoto:
+      req.body.profilePhoto !== undefined
+        ? String(req.body.profilePhoto || "").trim()
+        : undefined,
     phoneOtpToken:
       req.body.phoneOtpToken !== undefined
         ? String(req.body.phoneOtpToken || "").trim()
@@ -793,6 +814,17 @@ router.put("/profile", async (req, res) => {
     !/^\d{10}$/.test(normalized.emergencyContactPhone)
   ) {
     return res.status(400).json({ message: "emergencyContactPhone must be a 10 digit number" });
+  }
+
+  if (normalized.profilePhoto !== undefined && normalized.profilePhoto) {
+    const base64Payload = getBase64Payload(normalized.profilePhoto);
+    const bytes = getDecodedByteSize(base64Payload);
+    if (!bytes) {
+      return res.status(400).json({ message: "Invalid profile photo data" });
+    }
+    if (bytes > MAX_PROFILE_PHOTO_BYTES) {
+      return res.status(400).json({ message: "photo size is 2mb allowed" });
+    }
   }
 
   if (
@@ -849,6 +881,9 @@ router.put("/profile", async (req, res) => {
   if (normalized.emergencyContactPhone !== undefined) {
     update.emergencyContactPhone = normalized.emergencyContactPhone;
   }
+  if (normalized.profilePhoto !== undefined) {
+    update.profilePhoto = normalized.profilePhoto;
+  }
 
   const updatedUser = await User.findOneAndUpdate(
     userFilter,
@@ -867,6 +902,7 @@ router.put("/profile", async (req, res) => {
   profile.email = updatedUser.email || profile.email;
   profile.emergencyContactName = updatedUser.emergencyContactName || "";
   profile.emergencyContactPhone = updatedUser.emergencyContactPhone || "";
+  profile.profilePhoto = updatedUser.profilePhoto || "";
   touch(profile);
   await persistPhase1State();
   return res.json({
@@ -879,6 +915,7 @@ router.put("/profile", async (req, res) => {
       email: updatedUser.email || "",
       emergencyContactName: updatedUser.emergencyContactName || "",
       emergencyContactPhone: updatedUser.emergencyContactPhone || "",
+      profilePhoto: updatedUser.profilePhoto || "",
       familyMembers: profile.familyMembers || [],
     },
   });
