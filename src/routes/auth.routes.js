@@ -375,6 +375,14 @@ router.post("/register-society", async (req, res) => {
     societyName: String(req.body.societyName).trim(),
     societyPhone: String(req.body.societyPhone).trim(),
     societyEmail: String(req.body.societyEmail).trim().toLowerCase(),
+    merchantId:
+      req.body.merchantId === undefined || req.body.merchantId === null
+        ? ""
+        : String(req.body.merchantId).trim(),
+    clientSecret:
+      req.body.clientSecret === undefined || req.body.clientSecret === null
+        ? ""
+        : String(req.body.clientSecret).trim(),
     address: String(req.body.address).trim(),
     city: String(req.body.city).trim(),
     district: String(req.body.district).trim(),
@@ -470,6 +478,8 @@ router.post("/register-society", async (req, res) => {
       status: "pending",
       phone: normalized.societyPhone,
       email: normalized.societyEmail,
+      merchantId: normalized.merchantId || undefined,
+      clientSecret: normalized.clientSecret || undefined,
       address: normalized.address,
       city: normalized.city,
       district: normalized.district,

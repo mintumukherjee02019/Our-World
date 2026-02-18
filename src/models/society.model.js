@@ -37,6 +37,14 @@ const societySchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    merchantId: {
+      type: String,
+      trim: true,
+    },
+    clientSecret: {
+      type: String,
+      trim: true,
+    },
     address: {
       type: String,
       trim: true,
