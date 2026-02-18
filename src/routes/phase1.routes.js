@@ -745,6 +745,7 @@ router.get("/profile", async (req, res) => {
     name: user.fullName || "",
     flat: user.flat || fallbackProfile.flat || "",
     residenceDetails: user.residenceDetails || user.flat || fallbackProfile.flat || "",
+    about: user.about || "",
     phone: user.phone || "",
     email: user.email || "",
     emergencyContactName: user.emergencyContactName || "",
@@ -779,6 +780,8 @@ router.put("/profile", async (req, res) => {
       req.body.residenceDetails !== undefined
         ? String(req.body.residenceDetails || "").trim()
         : undefined,
+    about:
+      req.body.about !== undefined ? String(req.body.about || "").trim() : undefined,
     phone:
       req.body.phone !== undefined
         ? String(req.body.phone || "").trim()
@@ -881,6 +884,9 @@ router.put("/profile", async (req, res) => {
   if (normalized.residenceDetails !== undefined) {
     update.residenceDetails = normalized.residenceDetails;
   }
+  if (normalized.about !== undefined) {
+    update.about = normalized.about;
+  }
   if (normalized.phone !== undefined) update.phone = normalized.phone;
   if (normalized.email !== undefined) update.email = normalized.email;
   if (normalized.emergencyContactName !== undefined) {
@@ -907,6 +913,7 @@ router.put("/profile", async (req, res) => {
   profile.name = updatedUser.fullName || profile.name;
   profile.flat = updatedUser.flat || "";
   profile.residenceDetails = updatedUser.residenceDetails || updatedUser.flat || "";
+  profile.about = updatedUser.about || "";
   profile.phone = updatedUser.phone || profile.phone;
   profile.email = updatedUser.email || profile.email;
   profile.emergencyContactName = updatedUser.emergencyContactName || "";
@@ -921,6 +928,7 @@ router.put("/profile", async (req, res) => {
       name: updatedUser.fullName || "",
       flat: updatedUser.flat || "",
       residenceDetails: updatedUser.residenceDetails || updatedUser.flat || "",
+      about: updatedUser.about || "",
       phone: updatedUser.phone || "",
       email: updatedUser.email || "",
       emergencyContactName: updatedUser.emergencyContactName || "",
