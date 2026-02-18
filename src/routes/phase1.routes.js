@@ -744,6 +744,7 @@ router.get("/profile", async (req, res) => {
     id: user.userId ? `u_${user.userId}` : String(user._id),
     name: user.fullName || "",
     flat: user.flat || fallbackProfile.flat || "",
+    residenceDetails: user.residenceDetails || user.flat || fallbackProfile.flat || "",
     phone: user.phone || "",
     email: user.email || "",
     emergencyContactName: user.emergencyContactName || "",
@@ -773,6 +774,10 @@ router.put("/profile", async (req, res) => {
     flat:
       req.body.flat !== undefined
         ? String(req.body.flat || "").trim()
+        : undefined,
+    residenceDetails:
+      req.body.residenceDetails !== undefined
+        ? String(req.body.residenceDetails || "").trim()
         : undefined,
     phone:
       req.body.phone !== undefined
@@ -873,6 +878,9 @@ router.put("/profile", async (req, res) => {
   const update = {};
   if (normalized.name !== undefined) update.fullName = normalized.name;
   if (normalized.flat !== undefined) update.flat = normalized.flat;
+  if (normalized.residenceDetails !== undefined) {
+    update.residenceDetails = normalized.residenceDetails;
+  }
   if (normalized.phone !== undefined) update.phone = normalized.phone;
   if (normalized.email !== undefined) update.email = normalized.email;
   if (normalized.emergencyContactName !== undefined) {
@@ -898,6 +906,7 @@ router.put("/profile", async (req, res) => {
   const profile = getStore().profile;
   profile.name = updatedUser.fullName || profile.name;
   profile.flat = updatedUser.flat || "";
+  profile.residenceDetails = updatedUser.residenceDetails || updatedUser.flat || "";
   profile.phone = updatedUser.phone || profile.phone;
   profile.email = updatedUser.email || profile.email;
   profile.emergencyContactName = updatedUser.emergencyContactName || "";
@@ -911,6 +920,7 @@ router.put("/profile", async (req, res) => {
       id: updatedUser.userId ? `u_${updatedUser.userId}` : String(updatedUser._id),
       name: updatedUser.fullName || "",
       flat: updatedUser.flat || "",
+      residenceDetails: updatedUser.residenceDetails || updatedUser.flat || "",
       phone: updatedUser.phone || "",
       email: updatedUser.email || "",
       emergencyContactName: updatedUser.emergencyContactName || "",

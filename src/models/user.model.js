@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    residenceDetails: {
+      type: String,
+      trim: true,
+    },
     emergencyContactName: {
       type: String,
       trim: true,
