@@ -743,8 +743,8 @@ router.get("/profile", async (req, res) => {
   const item = {
     id: user.userId ? `u_${user.userId}` : String(user._id),
     name: user.fullName || "",
-    flat: user.flat || fallbackProfile.flat || "",
-    residenceDetails: user.residenceDetails || user.flat || fallbackProfile.flat || "",
+    flat: user.flat || "",
+    residenceDetails: user.residenceDetails || "",
     about: user.about || "",
     phone: user.phone || "",
     email: user.email || "",
@@ -771,10 +771,6 @@ router.put("/profile", async (req, res) => {
     name:
       req.body.name !== undefined
         ? String(req.body.name || "").trim()
-        : undefined,
-    flat:
-      req.body.flat !== undefined
-        ? String(req.body.flat || "").trim()
         : undefined,
     residenceDetails:
       req.body.residenceDetails !== undefined
@@ -880,7 +876,6 @@ router.put("/profile", async (req, res) => {
 
   const update = {};
   if (normalized.name !== undefined) update.fullName = normalized.name;
-  if (normalized.flat !== undefined) update.flat = normalized.flat;
   if (normalized.residenceDetails !== undefined) {
     update.residenceDetails = normalized.residenceDetails;
   }
@@ -912,7 +907,7 @@ router.put("/profile", async (req, res) => {
   const profile = getStore().profile;
   profile.name = updatedUser.fullName || profile.name;
   profile.flat = updatedUser.flat || "";
-  profile.residenceDetails = updatedUser.residenceDetails || updatedUser.flat || "";
+  profile.residenceDetails = updatedUser.residenceDetails || "";
   profile.about = updatedUser.about || "";
   profile.phone = updatedUser.phone || profile.phone;
   profile.email = updatedUser.email || profile.email;
@@ -927,7 +922,7 @@ router.put("/profile", async (req, res) => {
       id: updatedUser.userId ? `u_${updatedUser.userId}` : String(updatedUser._id),
       name: updatedUser.fullName || "",
       flat: updatedUser.flat || "",
-      residenceDetails: updatedUser.residenceDetails || updatedUser.flat || "",
+      residenceDetails: updatedUser.residenceDetails || "",
       about: updatedUser.about || "",
       phone: updatedUser.phone || "",
       email: updatedUser.email || "",
