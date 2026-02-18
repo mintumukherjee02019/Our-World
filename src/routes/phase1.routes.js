@@ -1,7 +1,10 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const auth = require("../middleware/auth");
+const User = require("../models/user.model");
 const { getLiveStore, createId, nowIso } = require("../data/phase1-store");
 const { persistPhase1State } = require("../services/phase1-state.service");
+const { verifyOtpTokenForMobile } = require("../services/otp.service");
 
 const router = express.Router();
 router.use(auth);
@@ -23,6 +26,23 @@ const removeById = (list, id) => {
   if (index < 0) return null;
   const [removed] = list.splice(index, 1);
   return removed;
+};
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const resolveUserFilterFromToken = (tokenUser = {}) => {
+  if (Number.isFinite(Number(tokenUser.userId))) {
+    return { userId: Number(tokenUser.userId) };
+  }
+  const id = String(tokenUser.id || "").trim();
+  const userIdFromPrefixedId = id.startsWith("u_") ? Number(id.slice(2)) : NaN;
+  if (Number.isFinite(userIdFromPrefixedId)) {
+    return { userId: userIdFromPrefixedId };
+  }
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    return { _id: id };
+  }
+  return null;
 };
 
 // Dashboard
@@ -692,19 +712,176 @@ router.delete("/chat/threads/:id/messages/:messageId", async (req, res) => {
 });
 
 // Profile CRUD (+ family members CRUD)
-router.get("/profile", (req, res) => {
-  return res.json({ item: getStore().profile });
+router.get("/profile", async (req, res) => {
+  const userFilter = resolveUserFilterFromToken(req.user);
+  if (!userFilter) {
+    return res.status(401).json({ message: "Unauthorized user identity" });
+  }
+
+  const user = await User.findOne(userFilter).lean();
+  if (!user) {
+    return res.status(404).json({ message: "Profile not found" });
+  }
+
+  const fallbackProfile = getStore().profile || {};
+  const item = {
+    id: user.userId ? `u_${user.userId}` : String(user._id),
+    name: user.fullName || "",
+    flat: user.flat || fallbackProfile.flat || "",
+    phone: user.phone || "",
+    email: user.email || "",
+    emergencyContactName: user.emergencyContactName || "",
+    emergencyContactPhone: user.emergencyContactPhone || "",
+    familyMembers: fallbackProfile.familyMembers || [],
+  };
+  return res.json({ item });
 });
 
 router.put("/profile", async (req, res) => {
+  const userFilter = resolveUserFilterFromToken(req.user);
+  if (!userFilter) {
+    return res.status(401).json({ message: "Unauthorized user identity" });
+  }
+
+  const existingUser = await User.findOne(userFilter).lean();
+  if (!existingUser) {
+    return res.status(404).json({ message: "Profile not found" });
+  }
+
+  const normalized = {
+    name:
+      req.body.name !== undefined
+        ? String(req.body.name || "").trim()
+        : undefined,
+    flat:
+      req.body.flat !== undefined
+        ? String(req.body.flat || "").trim()
+        : undefined,
+    phone:
+      req.body.phone !== undefined
+        ? String(req.body.phone || "").trim()
+        : undefined,
+    email:
+      req.body.email !== undefined
+        ? String(req.body.email || "").trim().toLowerCase()
+        : undefined,
+    emergencyContactName:
+      req.body.emergencyContactName !== undefined
+        ? String(req.body.emergencyContactName || "").trim()
+        : undefined,
+    emergencyContactPhone:
+      req.body.emergencyContactPhone !== undefined
+        ? String(req.body.emergencyContactPhone || "").trim()
+        : undefined,
+    phoneOtpToken:
+      req.body.phoneOtpToken !== undefined
+        ? String(req.body.phoneOtpToken || "").trim()
+        : undefined,
+  };
+
+  if (normalized.email !== undefined && normalized.email && !emailPattern.test(normalized.email)) {
+    return res.status(400).json({ message: "Invalid email" });
+  }
+
+  if (normalized.phone !== undefined && normalized.phone && !/^\d{10}$/.test(normalized.phone)) {
+    return res.status(400).json({ message: "phone must be a 10 digit number" });
+  }
+
+  if (
+    normalized.emergencyContactPhone !== undefined &&
+    normalized.emergencyContactPhone &&
+    !/^\d{10}$/.test(normalized.emergencyContactPhone)
+  ) {
+    return res.status(400).json({ message: "emergencyContactPhone must be a 10 digit number" });
+  }
+
+  if (
+    normalized.phone !== undefined &&
+    normalized.phone &&
+    normalized.phone !== String(existingUser.phone || "")
+  ) {
+    if (!normalized.phoneOtpToken) {
+      return res.status(400).json({
+        code: "PHONE_OTP_REQUIRED",
+        message: "OTP verification is required to update phone number",
+      });
+    }
+
+    try {
+      verifyOtpTokenForMobile({
+        token: normalized.phoneOtpToken,
+        mobile: normalized.phone,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        code: "PHONE_OTP_INVALID",
+        message: "Invalid or expired phone OTP verification",
+      });
+    }
+
+    const duplicatePhone = await User.findOne({
+      phone: normalized.phone,
+      _id: { $ne: existingUser._id },
+    }).lean();
+    if (duplicatePhone) {
+      return res.status(409).json({ message: "Phone already exists" });
+    }
+  }
+
+  if (normalized.email !== undefined && normalized.email) {
+    const duplicateEmail = await User.findOne({
+      email: normalized.email,
+      _id: { $ne: existingUser._id },
+    }).lean();
+    if (duplicateEmail) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
+  }
+
+  const update = {};
+  if (normalized.name !== undefined) update.fullName = normalized.name;
+  if (normalized.flat !== undefined) update.flat = normalized.flat;
+  if (normalized.phone !== undefined) update.phone = normalized.phone;
+  if (normalized.email !== undefined) update.email = normalized.email;
+  if (normalized.emergencyContactName !== undefined) {
+    update.emergencyContactName = normalized.emergencyContactName;
+  }
+  if (normalized.emergencyContactPhone !== undefined) {
+    update.emergencyContactPhone = normalized.emergencyContactPhone;
+  }
+
+  const updatedUser = await User.findOneAndUpdate(
+    userFilter,
+    { $set: update },
+    { new: true, runValidators: true }
+  ).lean();
+
+  if (!updatedUser) {
+    return res.status(404).json({ message: "Profile not found" });
+  }
+
   const profile = getStore().profile;
-  const allowed = ["name", "flat", "phone", "email"];
-  allowed.forEach((key) => {
-    if (req.body[key] !== undefined) profile[key] = req.body[key];
-  });
+  profile.name = updatedUser.fullName || profile.name;
+  profile.flat = updatedUser.flat || "";
+  profile.phone = updatedUser.phone || profile.phone;
+  profile.email = updatedUser.email || profile.email;
+  profile.emergencyContactName = updatedUser.emergencyContactName || "";
+  profile.emergencyContactPhone = updatedUser.emergencyContactPhone || "";
   touch(profile);
   await persistPhase1State();
-  return res.json({ message: "Profile updated", item: profile });
+  return res.json({
+    message: "Profile updated",
+    item: {
+      id: updatedUser.userId ? `u_${updatedUser.userId}` : String(updatedUser._id),
+      name: updatedUser.fullName || "",
+      flat: updatedUser.flat || "",
+      phone: updatedUser.phone || "",
+      email: updatedUser.email || "",
+      emergencyContactName: updatedUser.emergencyContactName || "",
+      emergencyContactPhone: updatedUser.emergencyContactPhone || "",
+      familyMembers: profile.familyMembers || [],
+    },
+  });
 });
 
 router.get("/profile/family", (req, res) => {

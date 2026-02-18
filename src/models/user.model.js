@@ -29,6 +29,18 @@ const userSchema = new mongoose.Schema(
       sparse: true,
       index: true,
     },
+    flat: {
+      type: String,
+      trim: true,
+    },
+    emergencyContactName: {
+      type: String,
+      trim: true,
+    },
+    emergencyContactPhone: {
+      type: String,
+      trim: true,
+    },
     role: {
       type: String,
       enum: USER_ROLES,
