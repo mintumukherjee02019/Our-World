@@ -10,6 +10,8 @@ const dashboardPayload = {
     { id: "visitors", title: "Visitors", tag: "New", color: "lavender" },
     { id: "notices", title: "Notices", tag: "New*", color: "rose" },
     { id: "complaints", title: "Complaints", tag: "New", color: "mint" },
+    { id: "marketplace", title: "Marketplace", tag: "New", color: "peach" },
+    { id: "nearby-deals", title: "Nearby Deals", tag: "Hot", color: "sky" },
   ],
   societyUpdate: {
     title: "Society Update",
@@ -24,4 +26,3 @@ const dashboardPayload = {
 };
 
 module.exports = dashboardPayload;
-

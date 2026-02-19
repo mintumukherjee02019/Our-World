@@ -30,5 +30,12 @@ router.get("/stats", (req, res) => {
   res.json({ items: featureData.stats });
 });
 
-module.exports = router;
+router.get("/marketplace", (req, res) => {
+  res.json({ items: featureData.marketplace });
+});
 
+router.get("/nearby-deals", (req, res) => {
+  res.json({ items: featureData["nearby-deals"] });
+});
+
+module.exports = router;
