@@ -33,6 +33,7 @@ router.post("/", async (req, res) => {
     phone: req.body.phone,
     email: req.body.email,
     role: req.body.role || "member",
+    societyRole: req.body.societyRole,
     isActive: req.body.isActive !== undefined ? Boolean(req.body.isActive) : true,
   });
   return res.status(201).json({ message: "User created", item });
@@ -41,7 +42,7 @@ router.post("/", async (req, res) => {
 router.put("/:userId", async (req, res) => {
   const userId = Number(req.params.userId);
   const filter = Number.isNaN(userId) ? { _id: req.params.userId } : { userId };
-  const allowed = ["fullName", "phone", "email", "role", "isActive", "lastLoginAt"];
+  const allowed = ["fullName", "phone", "email", "role", "societyRole", "isActive", "lastLoginAt"];
   const update = {};
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) update[key] = req.body[key];
@@ -61,4 +62,3 @@ router.delete("/:userId", async (req, res) => {
 });
 
 module.exports = router;
-

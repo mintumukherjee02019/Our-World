@@ -59,6 +59,10 @@ const userSchema = new mongoose.Schema(
       default: "member",
       index: true,
     },
+    societyRole: {
+      type: String,
+      trim: true,
+    },
     societyIds: [
       {
         type: Number,
