@@ -488,15 +488,30 @@ router.get("/bookings/:id", (req, res) => {
 });
 
 router.post("/bookings", async (req, res) => {
-  const { amenity, date, slot, status } = req.body;
-  if (!amenity || !date || !slot) {
-    return res.status(400).json({ message: "amenity, date, slot are required" });
+  const { amenity, date, slot, status, fromTime, toTime, amountPerDay } = req.body;
+  if (!amenity || (!slot && !(fromTime && toTime))) {
+    return res.status(400).json({
+      message: "amenity and slot (or fromTime + toTime) are required",
+    });
   }
+  const normalizedFrom = fromTime ? String(fromTime).trim() : "";
+  const normalizedTo = toTime ? String(toTime).trim() : "";
+  const resolvedSlot = slot
+    ? String(slot).trim()
+    : normalizedFrom && normalizedTo
+      ? `${normalizedFrom} - ${normalizedTo}`
+      : "";
   const item = {
     id: createId("b"),
     amenity,
-    date,
-    slot,
+    date: date || "",
+    slot: resolvedSlot,
+    fromTime: normalizedFrom,
+    toTime: normalizedTo,
+    amountPerDay:
+      amountPerDay === undefined || amountPerDay === null || amountPerDay === ""
+        ? null
+        : Number(amountPerDay),
     status: status || "Pending Approval",
     requestedBy: req.user.id,
     createdAt: nowIso(),
@@ -510,10 +525,15 @@ router.post("/bookings", async (req, res) => {
 router.put("/bookings/:id", async (req, res) => {
   const item = getStore().amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
-  const allowed = ["amenity", "date", "slot", "status"];
+  const allowed = ["amenity", "date", "slot", "status", "fromTime", "toTime", "amountPerDay"];
   allowed.forEach((key) => {
-    if (req.body[key] !== undefined) item[key] = req.body[key];
+    if (req.body[key] !== undefined) {
+      item[key] = key === "amountPerDay" ? Number(req.body[key]) : req.body[key];
+    }
   });
+  if (!item.slot && item.fromTime && item.toTime) {
+    item.slot = `${item.fromTime} - ${item.toTime}`;
+  }
   touch(item);
   await persistPhase1State();
   return res.json({ message: "Booking updated", item });
