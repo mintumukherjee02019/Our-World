@@ -17,6 +17,8 @@ router.get("/", async (req, res) => {
       return res.status(400).json({ message: "societyId must be a number" });
     }
     query.societyIds = societyId;
+  } else if (Number.isFinite(Number(req.selectedSocietyId))) {
+    query.societyIds = Number(req.selectedSocietyId);
   }
   const items = await User.find(query).sort({ createdAt: -1 }).lean();
   return res.json({ items });
@@ -27,6 +29,12 @@ router.get("/:userId", async (req, res) => {
   const filter = Number.isNaN(userId) ? { _id: req.params.userId } : { userId };
   const item = await User.findOne(filter).lean();
   if (!item) return res.status(404).json({ message: "User not found" });
+  if (
+    Number.isFinite(Number(req.selectedSocietyId)) &&
+    !((item.societyIds || []).map((id) => Number(id)).includes(Number(req.selectedSocietyId)))
+  ) {
+    return res.status(404).json({ message: "User not found" });
+  }
   return res.json({ item });
 });
 
@@ -61,6 +69,21 @@ router.post("/", async (req, res) => {
     }
   }
 
+  const requestedSocietyIds = Array.isArray(req.body.societyIds)
+    ? req.body.societyIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
+  const selectedSocietyId = Number.isFinite(Number(req.selectedSocietyId))
+    ? Number(req.selectedSocietyId)
+    : null;
+  const tokenSocietyIds = Array.isArray(req.user?.societyIds)
+    ? req.user.societyIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
+  const normalizedSocietyIds = requestedSocietyIds.length > 0
+    ? requestedSocietyIds
+    : selectedSocietyId !== null
+      ? [selectedSocietyId]
+      : tokenSocietyIds;
+
   try {
     const item = await User.create({
       fullName: normalizedName,
@@ -68,6 +91,7 @@ router.post("/", async (req, res) => {
       email: normalizedEmail || undefined,
       role: req.body.role || "member",
       societyRole: req.body.societyRole,
+      societyIds: normalizedSocietyIds,
       isActive: req.body.isActive !== undefined ? Boolean(req.body.isActive) : true,
     });
     return res.status(201).json({ message: "User created", item });
@@ -87,6 +111,14 @@ router.put("/:userId", async (req, res) => {
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) update[key] = req.body[key];
   });
+  const existing = await User.findOne(filter).lean();
+  if (!existing) return res.status(404).json({ message: "User not found" });
+  if (
+    Number.isFinite(Number(req.selectedSocietyId)) &&
+    !((existing.societyIds || []).map((id) => Number(id)).includes(Number(req.selectedSocietyId)))
+  ) {
+    return res.status(404).json({ message: "User not found" });
+  }
   const item = await User.findOneAndUpdate(filter, update, { returnDocument: "after", runValidators: true }).lean();
   if (!item) return res.status(404).json({ message: "User not found" });
   return res.json({ message: "User updated", item });
@@ -95,6 +127,14 @@ router.put("/:userId", async (req, res) => {
 router.delete("/:userId", async (req, res) => {
   const userId = Number(req.params.userId);
   const filter = Number.isNaN(userId) ? { _id: req.params.userId } : { userId };
+  const existing = await User.findOne(filter).lean();
+  if (!existing) return res.status(404).json({ message: "User not found" });
+  if (
+    Number.isFinite(Number(req.selectedSocietyId)) &&
+    !((existing.societyIds || []).map((id) => Number(id)).includes(Number(req.selectedSocietyId)))
+  ) {
+    return res.status(404).json({ message: "User not found" });
+  }
   const item = await User.findOneAndDelete(filter).lean();
   if (!item) return res.status(404).json({ message: "User not found" });
   await SocietyMembership.deleteMany({ userId: item.userId });

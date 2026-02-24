@@ -9,7 +9,38 @@ const { verifyOtpTokenForMobile } = require("../services/otp.service");
 const router = express.Router();
 router.use(auth);
 
-const getStore = () => getLiveStore();
+const getStoreRoot = () => getLiveStore();
+
+const getScopedSocietyId = (req) => {
+  if (Number.isFinite(Number(req.selectedSocietyId))) {
+    return Number(req.selectedSocietyId);
+  }
+  const tokenSocietyIds = Array.isArray(req.user?.societyIds)
+    ? req.user.societyIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
+  return tokenSocietyIds.length > 0 ? tokenSocietyIds[0] : null;
+};
+
+const getStore = (req) => {
+  const root = getStoreRoot();
+  const scopedSocietyId = getScopedSocietyId(req);
+  if (!Number.isFinite(scopedSocietyId)) {
+    return root;
+  }
+
+  if (!root.societyStores || typeof root.societyStores !== "object") {
+    root.societyStores = {};
+  }
+
+  const key = String(scopedSocietyId);
+  if (!root.societyStores[key]) {
+    const seeded = JSON.parse(JSON.stringify(root));
+    delete seeded.societyStores;
+    root.societyStores[key] = seeded;
+  }
+
+  return root.societyStores[key];
+};
 const parseBool = (value, fallback = false) => {
   if (value === undefined || value === null) return fallback;
   if (typeof value === "boolean") return value;
@@ -63,7 +94,7 @@ const getDecodedByteSize = (base64Value = "") => {
 
 // Dashboard
 router.get("/dashboard", (req, res) => {
-  const store = getStore();
+  const store = getStore(req);
   const pendingPayments = store.payments.filter((p) => p.status === "Pending").length;
   const openComplaints = store.complaints.filter((c) => c.status === "Open").length;
   const activeNotices = store.notices.length;
@@ -75,7 +106,7 @@ router.get("/dashboard", (req, res) => {
 
 // Notices CRUD
 router.get("/notices", (req, res) => {
-  const store = getStore();
+  const store = getStore(req);
   const category = req.query.category;
   let notices = store.notices;
   if (category && category !== "All") {
@@ -85,7 +116,7 @@ router.get("/notices", (req, res) => {
 });
 
 router.get("/notices/:id", (req, res) => {
-  const item = getStore().notices.find((n) => n.id === req.params.id);
+  const item = getStore(req).notices.find((n) => n.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Notice not found" });
   return res.json({ item });
 });
@@ -108,13 +139,13 @@ router.post("/notices", async (req, res) => {
     attachments: Array.isArray(attachments) ? attachments : [],
     readBy: [],
   };
-  getStore().notices.unshift(item);
+  getStore(req).notices.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Notice created", item });
 });
 
 router.put("/notices/:id", async (req, res) => {
-  const item = getStore().notices.find((n) => n.id === req.params.id);
+  const item = getStore(req).notices.find((n) => n.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Notice not found" });
   const allowed = ["title", "category", "content", "priority", "pinned", "attachments"];
   allowed.forEach((key) => {
@@ -128,14 +159,14 @@ router.put("/notices/:id", async (req, res) => {
 });
 
 router.delete("/notices/:id", async (req, res) => {
-  const removed = removeById(getStore().notices, req.params.id);
+  const removed = removeById(getStore(req).notices, req.params.id);
   if (!removed) return res.status(404).json({ message: "Notice not found" });
   await persistPhase1State();
   return res.json({ message: "Notice deleted", item: removed });
 });
 
 router.post("/notices/:id/read", async (req, res) => {
-  const notice = getStore().notices.find((n) => n.id === req.params.id);
+  const notice = getStore(req).notices.find((n) => n.id === req.params.id);
   if (!notice) return res.status(404).json({ message: "Notice not found" });
   if (!notice.readBy.includes(req.user.id)) notice.readBy.push(req.user.id);
   touch(notice);
@@ -145,11 +176,11 @@ router.post("/notices/:id/read", async (req, res) => {
 
 // Payments CRUD + pay + receipt
 router.get("/payments", (req, res) => {
-  return res.json({ items: getStore().payments });
+  return res.json({ items: getStore(req).payments });
 });
 
 router.get("/payments/:id", (req, res) => {
-  const item = getStore().payments.find((p) => p.id === req.params.id);
+  const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
   return res.json({ item });
 });
@@ -171,13 +202,13 @@ router.post("/payments", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().payments.unshift(item);
+  getStore(req).payments.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Payment created", item });
 });
 
 router.put("/payments/:id", async (req, res) => {
-  const item = getStore().payments.find((p) => p.id === req.params.id);
+  const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
   const allowed = ["type", "amount", "month", "dueDate", "status"];
   allowed.forEach((key) => {
@@ -189,14 +220,14 @@ router.put("/payments/:id", async (req, res) => {
 });
 
 router.delete("/payments/:id", async (req, res) => {
-  const removed = removeById(getStore().payments, req.params.id);
+  const removed = removeById(getStore(req).payments, req.params.id);
   if (!removed) return res.status(404).json({ message: "Payment not found" });
   await persistPhase1State();
   return res.json({ message: "Payment deleted", item: removed });
 });
 
 router.post("/payments/:id/pay", async (req, res) => {
-  const payment = getStore().payments.find((p) => p.id === req.params.id);
+  const payment = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!payment) return res.status(404).json({ message: "Payment not found" });
   payment.status = "Paid";
   payment.paidAt = nowIso();
@@ -207,7 +238,7 @@ router.post("/payments/:id/pay", async (req, res) => {
 });
 
 router.get("/payments/:id/receipt", (req, res) => {
-  const payment = getStore().payments.find((p) => p.id === req.params.id);
+  const payment = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!payment) return res.status(404).json({ message: "Payment not found" });
   return res.json({
     receipt: {
@@ -224,7 +255,7 @@ router.get("/payments/:id/receipt", (req, res) => {
 // Complaints CRUD + comments CRUD
 router.get("/complaints", (req, res) => {
   const status = req.query.status;
-  let items = getStore().complaints;
+  let items = getStore(req).complaints;
   if (status && status !== "All") {
     items = items.filter((c) => c.status.toLowerCase() === String(status).toLowerCase());
   }
@@ -232,7 +263,7 @@ router.get("/complaints", (req, res) => {
 });
 
 router.get("/complaints/:id", (req, res) => {
-  const item = getStore().complaints.find((c) => c.id === req.params.id);
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   return res.json({ item });
 });
@@ -254,13 +285,13 @@ router.post("/complaints", async (req, res) => {
     createdBy: req.user.id,
     comments: [],
   };
-  getStore().complaints.unshift(item);
+  getStore(req).complaints.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Complaint submitted", item });
 });
 
 router.put("/complaints/:id", async (req, res) => {
-  const item = getStore().complaints.find((c) => c.id === req.params.id);
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   const allowed = ["title", "category", "details", "status", "assignedTo"];
   allowed.forEach((key) => {
@@ -272,7 +303,7 @@ router.put("/complaints/:id", async (req, res) => {
 });
 
 router.patch("/complaints/:id/status", async (req, res) => {
-  const item = getStore().complaints.find((c) => c.id === req.params.id);
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   if (!req.body.status) return res.status(400).json({ message: "status is required" });
   item.status = req.body.status;
@@ -282,20 +313,20 @@ router.patch("/complaints/:id/status", async (req, res) => {
 });
 
 router.delete("/complaints/:id", async (req, res) => {
-  const removed = removeById(getStore().complaints, req.params.id);
+  const removed = removeById(getStore(req).complaints, req.params.id);
   if (!removed) return res.status(404).json({ message: "Complaint not found" });
   await persistPhase1State();
   return res.json({ message: "Complaint deleted", item: removed });
 });
 
 router.get("/complaints/:id/comments", (req, res) => {
-  const item = getStore().complaints.find((c) => c.id === req.params.id);
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   return res.json({ items: item.comments || [] });
 });
 
 router.post("/complaints/:id/comments", async (req, res) => {
-  const item = getStore().complaints.find((c) => c.id === req.params.id);
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   const { message } = req.body;
   if (!message) return res.status(400).json({ message: "message is required" });
@@ -314,7 +345,7 @@ router.post("/complaints/:id/comments", async (req, res) => {
 });
 
 router.put("/complaints/:id/comments/:commentId", async (req, res) => {
-  const complaint = getStore().complaints.find((c) => c.id === req.params.id);
+  const complaint = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!complaint) return res.status(404).json({ message: "Complaint not found" });
   const comment = (complaint.comments || []).find((c) => c.id === req.params.commentId);
   if (!comment) return res.status(404).json({ message: "Comment not found" });
@@ -327,7 +358,7 @@ router.put("/complaints/:id/comments/:commentId", async (req, res) => {
 });
 
 router.delete("/complaints/:id/comments/:commentId", async (req, res) => {
-  const complaint = getStore().complaints.find((c) => c.id === req.params.id);
+  const complaint = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!complaint) return res.status(404).json({ message: "Complaint not found" });
   const removed = removeById(complaint.comments || [], req.params.commentId);
   if (!removed) return res.status(404).json({ message: "Comment not found" });
@@ -338,11 +369,11 @@ router.delete("/complaints/:id/comments/:commentId", async (req, res) => {
 
 // Polls CRUD + vote
 router.get("/polls", (req, res) => {
-  return res.json({ items: getStore().polls });
+  return res.json({ items: getStore(req).polls });
 });
 
 router.get("/polls/:id", (req, res) => {
-  const item = getStore().polls.find((p) => p.id === req.params.id);
+  const item = getStore(req).polls.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Poll not found" });
   return res.json({ item });
 });
@@ -365,13 +396,13 @@ router.post("/polls", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().polls.unshift(item);
+  getStore(req).polls.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Poll created", item });
 });
 
 router.put("/polls/:id", async (req, res) => {
-  const item = getStore().polls.find((p) => p.id === req.params.id);
+  const item = getStore(req).polls.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Poll not found" });
   if (req.body.question !== undefined) item.question = req.body.question;
   if (req.body.active !== undefined) item.active = parseBool(req.body.active, item.active);
@@ -388,14 +419,14 @@ router.put("/polls/:id", async (req, res) => {
 });
 
 router.delete("/polls/:id", async (req, res) => {
-  const removed = removeById(getStore().polls, req.params.id);
+  const removed = removeById(getStore(req).polls, req.params.id);
   if (!removed) return res.status(404).json({ message: "Poll not found" });
   await persistPhase1State();
   return res.json({ message: "Poll deleted", item: removed });
 });
 
 router.post("/polls/:id/vote", async (req, res) => {
-  const poll = getStore().polls.find((p) => p.id === req.params.id);
+  const poll = getStore(req).polls.find((p) => p.id === req.params.id);
   if (!poll) return res.status(404).json({ message: "Poll not found" });
   const { optionId } = req.body;
   const option = poll.options.find((o) => o.id === optionId);
@@ -412,11 +443,11 @@ router.post("/polls/:id/vote", async (req, res) => {
 
 // Events CRUD + RSVP
 router.get("/events", (req, res) => {
-  return res.json({ items: getStore().events });
+  return res.json({ items: getStore(req).events });
 });
 
 router.get("/events/:id", (req, res) => {
-  const item = getStore().events.find((e) => e.id === req.params.id);
+  const item = getStore(req).events.find((e) => e.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Event not found" });
   return res.json({ item });
 });
@@ -438,13 +469,13 @@ router.post("/events", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().events.unshift(item);
+  getStore(req).events.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Event created", item });
 });
 
 router.put("/events/:id", async (req, res) => {
-  const item = getStore().events.find((e) => e.id === req.params.id);
+  const item = getStore(req).events.find((e) => e.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Event not found" });
   const allowed = ["title", "date", "time", "venue", "description", "rsvpCount", "userRsvp"];
   allowed.forEach((key) => {
@@ -458,14 +489,14 @@ router.put("/events/:id", async (req, res) => {
 });
 
 router.delete("/events/:id", async (req, res) => {
-  const removed = removeById(getStore().events, req.params.id);
+  const removed = removeById(getStore(req).events, req.params.id);
   if (!removed) return res.status(404).json({ message: "Event not found" });
   await persistPhase1State();
   return res.json({ message: "Event deleted", item: removed });
 });
 
 router.post("/events/:id/rsvp", async (req, res) => {
-  const event = getStore().events.find((e) => e.id === req.params.id);
+  const event = getStore(req).events.find((e) => e.id === req.params.id);
   if (!event) return res.status(404).json({ message: "Event not found" });
   if (!event.userRsvp) {
     event.userRsvp = true;
@@ -478,11 +509,11 @@ router.post("/events/:id/rsvp", async (req, res) => {
 
 // Amenity bookings CRUD
 router.get("/bookings", (req, res) => {
-  return res.json({ items: getStore().amenityBookings });
+  return res.json({ items: getStore(req).amenityBookings });
 });
 
 router.get("/bookings/:id", (req, res) => {
-  const item = getStore().amenityBookings.find((b) => b.id === req.params.id);
+  const item = getStore(req).amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
   return res.json({ item });
 });
@@ -517,13 +548,13 @@ router.post("/bookings", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().amenityBookings.unshift(item);
+  getStore(req).amenityBookings.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Booking request submitted", item });
 });
 
 router.put("/bookings/:id", async (req, res) => {
-  const item = getStore().amenityBookings.find((b) => b.id === req.params.id);
+  const item = getStore(req).amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
   const allowed = ["amenity", "date", "slot", "status", "fromTime", "toTime", "amountPerDay"];
   allowed.forEach((key) => {
@@ -540,7 +571,7 @@ router.put("/bookings/:id", async (req, res) => {
 });
 
 router.delete("/bookings/:id", async (req, res) => {
-  const removed = removeById(getStore().amenityBookings, req.params.id);
+  const removed = removeById(getStore(req).amenityBookings, req.params.id);
   if (!removed) return res.status(404).json({ message: "Booking not found" });
   await persistPhase1State();
   return res.json({ message: "Booking deleted", item: removed });
@@ -548,11 +579,11 @@ router.delete("/bookings/:id", async (req, res) => {
 
 // Documents CRUD
 router.get("/documents", (req, res) => {
-  return res.json({ items: getStore().documents });
+  return res.json({ items: getStore(req).documents });
 });
 
 router.get("/documents/:id", (req, res) => {
-  const item = getStore().documents.find((d) => d.id === req.params.id);
+  const item = getStore(req).documents.find((d) => d.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Document not found" });
   return res.json({ item });
 });
@@ -571,13 +602,13 @@ router.post("/documents", async (req, res) => {
     uploadedAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().documents.unshift(item);
+  getStore(req).documents.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Document created", item });
 });
 
 router.put("/documents/:id", async (req, res) => {
-  const item = getStore().documents.find((d) => d.id === req.params.id);
+  const item = getStore(req).documents.find((d) => d.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Document not found" });
   const allowed = ["title", "category", "fileType", "url"];
   allowed.forEach((key) => {
@@ -589,7 +620,7 @@ router.put("/documents/:id", async (req, res) => {
 });
 
 router.delete("/documents/:id", async (req, res) => {
-  const removed = removeById(getStore().documents, req.params.id);
+  const removed = removeById(getStore(req).documents, req.params.id);
   if (!removed) return res.status(404).json({ message: "Document not found" });
   await persistPhase1State();
   return res.json({ message: "Document deleted", item: removed });
@@ -598,7 +629,7 @@ router.delete("/documents/:id", async (req, res) => {
 // Chat users CRUD
 router.get("/chat/users", (req, res) => {
   const query = String(req.query.q || "").toLowerCase();
-  let users = getStore().chats.users;
+  let users = getStore(req).chats.users;
   if (query) users = users.filter((u) => u.name.toLowerCase().includes(query));
   return res.json({ items: users });
 });
@@ -614,13 +645,13 @@ router.post("/chat/users", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().chats.users.unshift(item);
+  getStore(req).chats.users.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Chat user created", item });
 });
 
 router.put("/chat/users/:id", async (req, res) => {
-  const item = getStore().chats.users.find((u) => u.id === req.params.id);
+  const item = getStore(req).chats.users.find((u) => u.id === req.params.id);
   if (!item) return res.status(404).json({ message: "User not found" });
   const allowed = ["name", "phone", "online"];
   allowed.forEach((key) => {
@@ -634,9 +665,9 @@ router.put("/chat/users/:id", async (req, res) => {
 });
 
 router.delete("/chat/users/:id", async (req, res) => {
-  const removed = removeById(getStore().chats.users, req.params.id);
+  const removed = removeById(getStore(req).chats.users, req.params.id);
   if (!removed) return res.status(404).json({ message: "User not found" });
-  getStore().chats.threads.forEach((thread) => {
+  getStore(req).chats.threads.forEach((thread) => {
     thread.members = (thread.members || []).filter((memberId) => memberId !== req.params.id);
     thread.messages = (thread.messages || []).filter((m) => m.by !== req.params.id);
     touch(thread);
@@ -647,11 +678,11 @@ router.delete("/chat/users/:id", async (req, res) => {
 
 // Chat threads/messages CRUD
 router.get("/chat/threads", (req, res) => {
-  return res.json({ items: getStore().chats.threads });
+  return res.json({ items: getStore(req).chats.threads });
 });
 
 router.get("/chat/threads/:id", (req, res) => {
-  const item = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const item = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Thread not found" });
   return res.json({ item });
 });
@@ -670,13 +701,13 @@ router.post("/chat/threads", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().chats.threads.unshift(thread);
+  getStore(req).chats.threads.unshift(thread);
   await persistPhase1State();
   return res.status(201).json({ message: "Thread created", item: thread });
 });
 
 router.put("/chat/threads/:id", async (req, res) => {
-  const item = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const item = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Thread not found" });
   const allowed = ["name", "type", "memberIds"];
   allowed.forEach((key) => {
@@ -694,20 +725,20 @@ router.put("/chat/threads/:id", async (req, res) => {
 });
 
 router.delete("/chat/threads/:id", async (req, res) => {
-  const removed = removeById(getStore().chats.threads, req.params.id);
+  const removed = removeById(getStore(req).chats.threads, req.params.id);
   if (!removed) return res.status(404).json({ message: "Thread not found" });
   await persistPhase1State();
   return res.json({ message: "Thread deleted", item: removed });
 });
 
 router.get("/chat/threads/:id/messages", (req, res) => {
-  const thread = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const thread = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ message: "Thread not found" });
   return res.json({ items: thread.messages || [] });
 });
 
 router.post("/chat/threads/:id/messages", async (req, res) => {
-  const thread = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const thread = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ message: "Thread not found" });
   const { text } = req.body;
   if (!text) return res.status(400).json({ message: "text is required" });
@@ -725,7 +756,7 @@ router.post("/chat/threads/:id/messages", async (req, res) => {
 });
 
 router.put("/chat/threads/:id/messages/:messageId", async (req, res) => {
-  const thread = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const thread = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ message: "Thread not found" });
   const message = (thread.messages || []).find((m) => m.id === req.params.messageId);
   if (!message) return res.status(404).json({ message: "Message not found" });
@@ -738,7 +769,7 @@ router.put("/chat/threads/:id/messages/:messageId", async (req, res) => {
 });
 
 router.delete("/chat/threads/:id/messages/:messageId", async (req, res) => {
-  const thread = getStore().chats.threads.find((t) => t.id === req.params.id);
+  const thread = getStore(req).chats.threads.find((t) => t.id === req.params.id);
   if (!thread) return res.status(404).json({ message: "Thread not found" });
   const removed = removeById(thread.messages || [], req.params.messageId);
   if (!removed) return res.status(404).json({ message: "Message not found" });
@@ -759,7 +790,7 @@ router.get("/profile", async (req, res) => {
     return res.status(404).json({ message: "Profile not found" });
   }
 
-  const fallbackProfile = getStore().profile || {};
+  const fallbackProfile = getStore(req).profile || {};
   const item = {
     id: user.userId ? `u_${user.userId}` : String(user._id),
     name: user.fullName || "",
@@ -924,7 +955,7 @@ router.put("/profile", async (req, res) => {
     return res.status(404).json({ message: "Profile not found" });
   }
 
-  const profile = getStore().profile;
+  const profile = getStore(req).profile;
   profile.name = updatedUser.fullName || profile.name;
   profile.flat = updatedUser.flat || "";
   profile.residenceDetails = updatedUser.residenceDetails || "";
@@ -955,7 +986,7 @@ router.put("/profile", async (req, res) => {
 });
 
 router.get("/profile/family", (req, res) => {
-  return res.json({ items: getStore().profile.familyMembers || [] });
+  return res.json({ items: getStore(req).profile.familyMembers || [] });
 });
 
 router.post("/profile/family", async (req, res) => {
@@ -971,40 +1002,40 @@ router.post("/profile/family", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  getStore().profile.familyMembers.push(member);
-  touch(getStore().profile);
+  getStore(req).profile.familyMembers.push(member);
+  touch(getStore(req).profile);
   await persistPhase1State();
   return res.status(201).json({ message: "Family member added", item: member });
 });
 
 router.put("/profile/family/:id", async (req, res) => {
-  const member = (getStore().profile.familyMembers || []).find((fm) => fm.id === req.params.id);
+  const member = (getStore(req).profile.familyMembers || []).find((fm) => fm.id === req.params.id);
   if (!member) return res.status(404).json({ message: "Family member not found" });
   const allowed = ["name", "relation", "phone"];
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) member[key] = req.body[key];
   });
   member.updatedAt = nowIso();
-  touch(getStore().profile);
+  touch(getStore(req).profile);
   await persistPhase1State();
   return res.json({ message: "Family member updated", item: member });
 });
 
 router.delete("/profile/family/:id", async (req, res) => {
-  const removed = removeById(getStore().profile.familyMembers || [], req.params.id);
+  const removed = removeById(getStore(req).profile.familyMembers || [], req.params.id);
   if (!removed) return res.status(404).json({ message: "Family member not found" });
-  touch(getStore().profile);
+  touch(getStore(req).profile);
   await persistPhase1State();
   return res.json({ message: "Family member deleted", item: removed });
 });
 
 // Feature requests CRUD
 router.get("/feature-requests", (req, res) => {
-  return res.json({ items: getStore().featureRequests });
+  return res.json({ items: getStore(req).featureRequests });
 });
 
 router.get("/feature-requests/:id", (req, res) => {
-  const item = getStore().featureRequests.find((f) => f.id === req.params.id);
+  const item = getStore(req).featureRequests.find((f) => f.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Feature request not found" });
   return res.json({ item });
 });
@@ -1024,13 +1055,13 @@ router.post("/feature-requests", async (req, res) => {
     updatedAt: nowIso(),
     createdBy: req.user.id,
   };
-  getStore().featureRequests.unshift(item);
+  getStore(req).featureRequests.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Feature request submitted", item });
 });
 
 router.put("/feature-requests/:id", async (req, res) => {
-  const item = getStore().featureRequests.find((f) => f.id === req.params.id);
+  const item = getStore(req).featureRequests.find((f) => f.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Feature request not found" });
   const allowed = ["title", "description", "attachmentUrl", "status"];
   allowed.forEach((key) => {
@@ -1042,10 +1073,11 @@ router.put("/feature-requests/:id", async (req, res) => {
 });
 
 router.delete("/feature-requests/:id", async (req, res) => {
-  const removed = removeById(getStore().featureRequests, req.params.id);
+  const removed = removeById(getStore(req).featureRequests, req.params.id);
   if (!removed) return res.status(404).json({ message: "Feature request not found" });
   await persistPhase1State();
   return res.json({ message: "Feature request deleted", item: removed });
 });
 
 module.exports = router;
+

@@ -66,7 +66,9 @@ router.get("/", auth, async (req, res) => {
       address: formatSocietyAddress(society) || dashboardPayload.header.address,
     }));
 
-  const selectedSociety = orderedSocieties[0];
+  const selectedSociety = orderedSocieties.find(
+    (society) => Number(society.societyId) === Number(req.selectedSocietyId)
+  ) || orderedSocieties[0];
   const dashboard = {
     ...dashboardPayload,
     header: {
