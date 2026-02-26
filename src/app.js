@@ -21,7 +21,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/features", featuresRoutes);
-app.use("/api/phase1", phase1Routes);
+app.use("/api/v1", phase1Routes);
 app.use("/api/societies", societiesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/memberships", membershipsRoutes);

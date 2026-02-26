@@ -69,6 +69,14 @@ const userSchema = new mongoose.Schema(
         index: true,
       },
     ],
+    createdByUserId: {
+      type: Number,
+      index: true,
+    },
+    createdBySocietyId: {
+      type: Number,
+      index: true,
+    },
     isActive: {
       type: Boolean,
       default: true,

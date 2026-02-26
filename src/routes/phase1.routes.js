@@ -92,6 +92,33 @@ const getDecodedByteSize = (base64Value = "") => {
   }
 };
 
+const resolveCreatorUserId = (req) => {
+  if (Number.isFinite(Number(req.user?.userId))) {
+    return Number(req.user.userId);
+  }
+  const id = String(req.user?.id || "").trim();
+  if (id.startsWith("u_")) {
+    const parsed = Number(id.slice(2));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const resolveCreatorSocietyId = (req) => {
+  if (Number.isFinite(Number(req.selectedSocietyId))) {
+    return Number(req.selectedSocietyId);
+  }
+  const tokenSocietyIds = Array.isArray(req.user?.societyIds)
+    ? req.user.societyIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
+  return tokenSocietyIds.length > 0 ? tokenSocietyIds[0] : null;
+};
+
+const buildCreationAudit = (req) => ({
+  createdByUserId: resolveCreatorUserId(req),
+  createdBySocietyId: resolveCreatorSocietyId(req),
+});
+
 // Dashboard
 router.get("/dashboard", (req, res) => {
   const store = getStore(req);
@@ -138,6 +165,7 @@ router.post("/notices", async (req, res) => {
     pinned: parseBool(pinned, false),
     attachments: Array.isArray(attachments) ? attachments : [],
     readBy: [],
+    ...buildCreationAudit(req),
   };
   getStore(req).notices.unshift(item);
   await persistPhase1State();
@@ -201,6 +229,7 @@ router.post("/payments", async (req, res) => {
     transactionRef: null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).payments.unshift(item);
   await persistPhase1State();
@@ -284,6 +313,7 @@ router.post("/complaints", async (req, res) => {
     updatedAt: nowIso(),
     createdBy: req.user.id,
     comments: [],
+    ...buildCreationAudit(req),
   };
   getStore(req).complaints.unshift(item);
   await persistPhase1State();
@@ -337,6 +367,7 @@ router.post("/complaints/:id/comments", async (req, res) => {
     message,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   item.comments.push(comment);
   touch(item);
@@ -395,6 +426,7 @@ router.post("/polls", async (req, res) => {
     votedUserIds: [],
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).polls.unshift(item);
   await persistPhase1State();
@@ -468,6 +500,7 @@ router.post("/events", async (req, res) => {
     userRsvp: false,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).events.unshift(item);
   await persistPhase1State();
@@ -547,6 +580,7 @@ router.post("/bookings", async (req, res) => {
     requestedBy: req.user.id,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).amenityBookings.unshift(item);
   await persistPhase1State();
@@ -601,6 +635,7 @@ router.post("/documents", async (req, res) => {
     url,
     uploadedAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).documents.unshift(item);
   await persistPhase1State();
@@ -644,6 +679,7 @@ router.post("/chat/users", async (req, res) => {
     online: parseBool(online, false),
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).chats.users.unshift(item);
   await persistPhase1State();
@@ -700,6 +736,7 @@ router.post("/chat/threads", async (req, res) => {
     messages: [],
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).chats.threads.unshift(thread);
   await persistPhase1State();
@@ -748,6 +785,7 @@ router.post("/chat/threads/:id/messages", async (req, res) => {
     text,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   thread.messages.push(message);
   touch(thread);
@@ -1001,6 +1039,7 @@ router.post("/profile/family", async (req, res) => {
     phone,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    ...buildCreationAudit(req),
   };
   getStore(req).profile.familyMembers.push(member);
   touch(getStore(req).profile);
@@ -1054,6 +1093,7 @@ router.post("/feature-requests", async (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     createdBy: req.user.id,
+    ...buildCreationAudit(req),
   };
   getStore(req).featureRequests.unshift(item);
   await persistPhase1State();

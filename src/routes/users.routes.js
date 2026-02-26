@@ -83,6 +83,14 @@ router.post("/", async (req, res) => {
     : selectedSocietyId !== null
       ? [selectedSocietyId]
       : tokenSocietyIds;
+  const creatorUserId = Number.isFinite(Number(req.user?.userId))
+    ? Number(req.user.userId)
+    : null;
+  const creatorSocietyId = selectedSocietyId !== null
+    ? selectedSocietyId
+    : normalizedSocietyIds.length > 0
+      ? normalizedSocietyIds[0]
+      : null;
 
   try {
     const item = await User.create({
@@ -92,6 +100,8 @@ router.post("/", async (req, res) => {
       role: req.body.role || "member",
       societyRole: req.body.societyRole,
       societyIds: normalizedSocietyIds,
+      createdByUserId: creatorUserId,
+      createdBySocietyId: creatorSocietyId,
       isActive: req.body.isActive !== undefined ? Boolean(req.body.isActive) : true,
     });
     return res.status(201).json({ message: "User created", item });
