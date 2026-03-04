@@ -283,10 +283,39 @@ router.post(["/society-updates/:id/read", "/notices/:id/read"], async (req, res)
 
 // Payments CRUD + pay + receipt
 router.get("/payments", async (req, res) => {
+  const typeFilter = String(req.query.type || "").trim().toLowerCase();
+  const yearFilter = String(req.query.year || "").trim();
+  let source = getStore(req).payments;
+  if (typeFilter) {
+    source = source.filter(
+      (payment) => String(payment.type || "").trim().toLowerCase() === typeFilter
+    );
+  }
+  if (yearFilter) {
+    source = source.filter((payment) =>
+      String(payment.month || "").trim().startsWith(`${yearFilter}-`)
+    );
+  }
   const items = await Promise.all(
-    getStore(req).payments.map((payment) => attachPaymentCreatorDetails(payment))
+    source.map((payment) => attachPaymentCreatorDetails(payment))
   );
   return res.json({ items });
+});
+
+router.get("/payments/maintenance-years", (req, res) => {
+  const years = Array.from(
+    new Set(
+      getStore(req)
+        .payments.filter(
+          (payment) => String(payment.type || "").trim().toLowerCase() === "maintenance"
+        )
+        .map((payment) => String(payment.month || "").trim())
+        .filter((month) => /^\d{4}-\d{2}$/.test(month))
+        .map((month) => Number(month.slice(0, 4)))
+        .filter((year) => Number.isFinite(year))
+    )
+  ).sort((a, b) => a - b);
+  return res.json({ years });
 });
 
 router.get("/payments/:id", async (req, res) => {
