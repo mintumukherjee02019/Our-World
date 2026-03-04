@@ -36,10 +36,13 @@ router.get("/", auth, async (req, res) => {
       ? { phone: String(req.user.mobile).trim() }
       : null;
 
+  let resolvedUser = null;
   if (userFilter) {
-    const user = await User.findOne(userFilter).select("societyIds").lean();
-    if (user && Array.isArray(user.societyIds)) {
-      societyIds = user.societyIds
+    resolvedUser = await User.findOne(userFilter)
+      .select("societyIds role fullName")
+      .lean();
+    if (resolvedUser && Array.isArray(resolvedUser.societyIds)) {
+      societyIds = resolvedUser.societyIds
         .map((id) => Number(id))
         .filter((id) => Number.isFinite(id));
     }
@@ -91,7 +94,15 @@ router.get("/", auth, async (req, res) => {
   };
 
   return res.json({
-    user: req.user,
+    user: {
+      ...req.user,
+      role: String(
+        resolvedUser?.role || req.user?.role || dashboardPayload.user?.role || "member"
+      ).trim(),
+      name: String(
+        resolvedUser?.fullName || req.user?.name || dashboardPayload.header.residentName || ""
+      ).trim(),
+    },
     dashboard,
   });
 });

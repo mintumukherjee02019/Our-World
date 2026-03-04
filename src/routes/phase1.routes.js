@@ -178,6 +178,26 @@ const attachBookingRequesterDetails = async (booking = {}) => {
   };
 };
 
+const attachPaymentCreatorDetails = async (payment = {}) => {
+  let user = null;
+  if (Number.isFinite(Number(payment.createdByUserId))) {
+    user = await User.findOne({ userId: Number(payment.createdByUserId) })
+      .select("userId fullName")
+      .lean();
+  }
+
+  return {
+    ...payment,
+    createdByUserId:
+      user?.userId ??
+      (Number.isFinite(Number(payment.createdByUserId))
+        ? Number(payment.createdByUserId)
+        : null),
+    createdByName:
+      String(user?.fullName || payment.createdByName || "").trim(),
+  };
+};
+
 // Dashboard
 router.get("/dashboard", (req, res) => {
   const store = getStore(req);
@@ -262,14 +282,17 @@ router.post(["/society-updates/:id/read", "/notices/:id/read"], async (req, res)
 });
 
 // Payments CRUD + pay + receipt
-router.get("/payments", (req, res) => {
-  return res.json({ items: getStore(req).payments });
+router.get("/payments", async (req, res) => {
+  const items = await Promise.all(
+    getStore(req).payments.map((payment) => attachPaymentCreatorDetails(payment))
+  );
+  return res.json({ items });
 });
 
-router.get("/payments/:id", (req, res) => {
+router.get("/payments/:id", async (req, res) => {
   const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
-  return res.json({ item });
+  return res.json({ item: await attachPaymentCreatorDetails(item) });
 });
 
 router.post("/payments", async (req, res) => {
@@ -286,6 +309,7 @@ router.post("/payments", async (req, res) => {
     status: status || "Pending",
     paidAt: null,
     transactionRef: null,
+    createdByName: String(req.user?.name || "").trim(),
     createdAt: nowIso(),
     updatedAt: nowIso(),
     ...buildCreationAudit(req),
