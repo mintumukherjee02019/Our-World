@@ -119,6 +119,55 @@ const buildCreationAudit = (req) => ({
   createdBySocietyId: resolveCreatorSocietyId(req),
 });
 
+const resolveBookingRequesterFilter = (booking = {}) => {
+  if (Number.isFinite(Number(booking.createdByUserId))) {
+    return { userId: Number(booking.createdByUserId) };
+  }
+
+  const requestedBy = String(booking.requestedBy || "").trim();
+  if (!requestedBy) return null;
+
+  if (requestedBy.startsWith("u_")) {
+    const parsed = Number(requestedBy.slice(2));
+    if (Number.isFinite(parsed)) {
+      return { userId: parsed };
+    }
+  }
+
+  const numericRequestedBy = Number(requestedBy);
+  if (Number.isFinite(numericRequestedBy)) {
+    return { userId: numericRequestedBy };
+  }
+
+  if (mongoose.Types.ObjectId.isValid(requestedBy)) {
+    return { _id: requestedBy };
+  }
+
+  return null;
+};
+
+const attachBookingRequesterDetails = async (booking = {}) => {
+  const requesterFilter = resolveBookingRequesterFilter(booking);
+  let user = null;
+
+  if (requesterFilter) {
+    user = await User.findOne(requesterFilter)
+      .select("userId fullName phone")
+      .lean();
+  }
+
+  return {
+    ...booking,
+    requestedByUserId:
+      user?.userId ??
+      (Number.isFinite(Number(booking.createdByUserId))
+        ? Number(booking.createdByUserId)
+        : null),
+    requestedByName: user?.fullName || "",
+    requestedByPhone: user?.phone || "",
+  };
+};
+
 // Dashboard
 router.get("/dashboard", (req, res) => {
   const store = getStore(req);
@@ -541,14 +590,19 @@ router.post("/events/:id/rsvp", async (req, res) => {
 });
 
 // Amenity bookings CRUD
-router.get("/bookings", (req, res) => {
-  return res.json({ items: getStore(req).amenityBookings });
+router.get("/bookings", async (req, res) => {
+  const items = await Promise.all(
+    getStore(req).amenityBookings.map((booking) =>
+      attachBookingRequesterDetails(booking)
+    )
+  );
+  return res.json({ items });
 });
 
-router.get("/bookings/:id", (req, res) => {
+router.get("/bookings/:id", async (req, res) => {
   const item = getStore(req).amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
-  return res.json({ item });
+  return res.json({ item: await attachBookingRequesterDetails(item) });
 });
 
 router.post("/bookings", async (req, res) => {
