@@ -300,11 +300,25 @@ router.post("/payments", async (req, res) => {
   if (!type || amount === undefined || !month) {
     return res.status(400).json({ message: "type, amount, month are required" });
   }
+  const normalizedType = String(type || "").trim().toLowerCase();
+  const normalizedMonth = String(month || "").trim();
+  if (normalizedType === "maintenance") {
+    const duplicate = getStore(req).payments.find(
+      (payment) =>
+        String(payment.type || "").trim().toLowerCase() === "maintenance" &&
+        String(payment.month || "").trim() === normalizedMonth
+    );
+    if (duplicate) {
+      return res.status(409).json({
+        message: "Maintenance record already exists for this month. Please update it.",
+      });
+    }
+  }
   const item = {
     id: createId("p"),
     type,
     amount: Number(amount),
-    month,
+    month: normalizedMonth,
     dueDate: dueDate || null,
     status: status || "Pending",
     paidAt: null,
@@ -322,6 +336,24 @@ router.post("/payments", async (req, res) => {
 router.put("/payments/:id", async (req, res) => {
   const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
+  const nextType = req.body.type !== undefined ? req.body.type : item.type;
+  const nextMonth = req.body.month !== undefined ? req.body.month : item.month;
+  if (
+    String(nextType || "").trim().toLowerCase() === "maintenance" &&
+    String(nextMonth || "").trim()
+  ) {
+    const duplicate = getStore(req).payments.find(
+      (payment) =>
+        payment.id !== item.id &&
+        String(payment.type || "").trim().toLowerCase() === "maintenance" &&
+        String(payment.month || "").trim() === String(nextMonth || "").trim()
+    );
+    if (duplicate) {
+      return res.status(409).json({
+        message: "Maintenance record already exists for this month. Please update it.",
+      });
+    }
+  }
   const allowed = ["type", "amount", "month", "dueDate", "status"];
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) item[key] = key === "amount" ? Number(req.body[key]) : req.body[key];
