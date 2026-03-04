@@ -119,6 +119,15 @@ const buildCreationAudit = (req) => ({
   createdBySocietyId: resolveCreatorSocietyId(req),
 });
 
+const normalizeStatusValue = (value) => String(value || "").trim().toLowerCase();
+
+const buildBookingApprovalAuditEntry = (req, action) => ({
+  action,
+  byUserId: resolveCreatorUserId(req),
+  byName: String(req.user?.name || "").trim() || "Unknown admin",
+  actedAt: nowIso(),
+});
+
 const resolveBookingRequesterFilter = (booking = {}) => {
   if (Number.isFinite(Number(booking.createdByUserId))) {
     return { userId: Number(booking.createdByUserId) };
@@ -152,7 +161,7 @@ const attachBookingRequesterDetails = async (booking = {}) => {
 
   if (requesterFilter) {
     user = await User.findOne(requesterFilter)
-      .select("userId fullName phone")
+      .select("userId fullName phone residenceDetails flat")
       .lean();
   }
 
@@ -165,6 +174,7 @@ const attachBookingRequesterDetails = async (booking = {}) => {
         : null),
     requestedByName: user?.fullName || "",
     requestedByPhone: user?.phone || "",
+    requestedByAddress: user?.residenceDetails || user?.flat || "",
   };
 };
 
@@ -644,6 +654,7 @@ router.post("/bookings", async (req, res) => {
     isBookingRequest: parseBool(isBookingRequest, false),
     requiresBooking: parseBool(requiresBooking, false),
     requestedBy: req.user.id,
+    approvalAudit: [],
     createdAt: nowIso(),
     updatedAt: nowIso(),
     ...buildCreationAudit(req),
@@ -656,6 +667,7 @@ router.post("/bookings", async (req, res) => {
 router.put("/bookings/:id", async (req, res) => {
   const item = getStore(req).amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
+  const previousStatus = normalizeStatusValue(item.status);
   const allowed = [
     "amenity",
     "date",
@@ -678,6 +690,20 @@ router.put("/bookings/:id", async (req, res) => {
       }
     }
   });
+  const incomingStatusDefined = req.body.status !== undefined;
+  const nextStatus = incomingStatusDefined
+    ? normalizeStatusValue(req.body.status)
+    : previousStatus;
+  if (item.isBookingRequest && incomingStatusDefined && nextStatus !== previousStatus) {
+    if (!Array.isArray(item.approvalAudit)) {
+      item.approvalAudit = [];
+    }
+    if (nextStatus === "approved") {
+      item.approvalAudit.push(buildBookingApprovalAuditEntry(req, "approved"));
+    } else if (previousStatus === "approved" && nextStatus !== "approved") {
+      item.approvalAudit.push(buildBookingApprovalAuditEntry(req, "unapproved"));
+    }
+  }
   if (!item.slot && item.fromTime && item.toTime) {
     item.slot = `${item.fromTime} - ${item.toTime}`;
   }
