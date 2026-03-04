@@ -552,7 +552,17 @@ router.get("/bookings/:id", (req, res) => {
 });
 
 router.post("/bookings", async (req, res) => {
-  const { amenity, date, slot, status, fromTime, toTime, amountPerDay } = req.body;
+  const {
+    amenity,
+    date,
+    slot,
+    status,
+    fromTime,
+    toTime,
+    amountPerDay,
+    isBookingRequest,
+    requiresBooking,
+  } = req.body;
   if (!amenity || (!slot && !(fromTime && toTime))) {
     return res.status(400).json({
       message: "amenity and slot (or fromTime + toTime) are required",
@@ -577,6 +587,8 @@ router.post("/bookings", async (req, res) => {
         ? null
         : Number(amountPerDay),
     status: status || "Pending Approval",
+    isBookingRequest: parseBool(isBookingRequest, false),
+    requiresBooking: parseBool(requiresBooking, false),
     requestedBy: req.user.id,
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -590,10 +602,26 @@ router.post("/bookings", async (req, res) => {
 router.put("/bookings/:id", async (req, res) => {
   const item = getStore(req).amenityBookings.find((b) => b.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Booking not found" });
-  const allowed = ["amenity", "date", "slot", "status", "fromTime", "toTime", "amountPerDay"];
+  const allowed = [
+    "amenity",
+    "date",
+    "slot",
+    "status",
+    "fromTime",
+    "toTime",
+    "amountPerDay",
+    "isBookingRequest",
+    "requiresBooking",
+  ];
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) {
-      item[key] = key === "amountPerDay" ? Number(req.body[key]) : req.body[key];
+      if (key === "amountPerDay") {
+        item[key] = Number(req.body[key]);
+      } else if (key === "isBookingRequest" || key === "requiresBooking") {
+        item[key] = parseBool(req.body[key], item[key] === true);
+      } else {
+        item[key] = req.body[key];
+      }
     }
   });
   if (!item.slot && item.fromTime && item.toTime) {

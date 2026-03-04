@@ -106,8 +106,30 @@ const defaultPhase1Store = {
       amenity: "Clubhouse",
       date: "2026-03-02",
       slot: "7:00 PM - 9:00 PM",
-      status: "Approved",
+      status: "Active",
+      isBookingRequest: false,
+      requiresBooking: true,
       requestedBy: "u_1001",
+    },
+    {
+      id: "b_2",
+      amenity: "Clubhouse",
+      date: "2026-03-10",
+      slot: "6:00 PM - 8:00 PM",
+      status: "Pending Approval",
+      isBookingRequest: true,
+      requiresBooking: true,
+      requestedBy: "u_1002",
+    },
+    {
+      id: "b_3",
+      amenity: "Community Hall",
+      date: "2026-03-12",
+      slot: "10:00 AM - 12:00 PM",
+      status: "Approved",
+      isBookingRequest: true,
+      requiresBooking: true,
+      requestedBy: "u_1003",
     },
   ],
   documents: [
@@ -197,4 +219,3 @@ module.exports = {
   nowIso,
   withMeta,
 };
-
