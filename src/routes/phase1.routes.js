@@ -190,8 +190,8 @@ router.get("/dashboard", (req, res) => {
   });
 });
 
-// Notices CRUD
-router.get("/notices", (req, res) => {
+// Society updates CRUD
+router.get(["/society-updates", "/notices"], (req, res) => {
   const store = getStore(req);
   const category = req.query.category;
   let notices = store.notices;
@@ -201,13 +201,13 @@ router.get("/notices", (req, res) => {
   return res.json({ items: notices });
 });
 
-router.get("/notices/:id", (req, res) => {
+router.get(["/society-updates/:id", "/notices/:id"], (req, res) => {
   const item = getStore(req).notices.find((n) => n.id === req.params.id);
-  if (!item) return res.status(404).json({ message: "Notice not found" });
+  if (!item) return res.status(404).json({ message: "Society update not found" });
   return res.json({ item });
 });
 
-router.post("/notices", async (req, res) => {
+router.post(["/society-updates", "/notices"], async (req, res) => {
   const { title, category, content, priority, pinned, attachments } = req.body;
   if (!title || !category || !content) {
     return res.status(400).json({ message: "title, category, content are required" });
@@ -228,12 +228,12 @@ router.post("/notices", async (req, res) => {
   };
   getStore(req).notices.unshift(item);
   await persistPhase1State();
-  return res.status(201).json({ message: "Notice created", item });
+  return res.status(201).json({ message: "Society update created", item });
 });
 
-router.put("/notices/:id", async (req, res) => {
+router.put(["/society-updates/:id", "/notices/:id"], async (req, res) => {
   const item = getStore(req).notices.find((n) => n.id === req.params.id);
-  if (!item) return res.status(404).json({ message: "Notice not found" });
+  if (!item) return res.status(404).json({ message: "Society update not found" });
   const allowed = ["title", "category", "content", "priority", "pinned", "attachments"];
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) {
@@ -242,19 +242,19 @@ router.put("/notices/:id", async (req, res) => {
   });
   touch(item);
   await persistPhase1State();
-  return res.json({ message: "Notice updated", item });
+  return res.json({ message: "Society update updated", item });
 });
 
-router.delete("/notices/:id", async (req, res) => {
+router.delete(["/society-updates/:id", "/notices/:id"], async (req, res) => {
   const removed = removeById(getStore(req).notices, req.params.id);
-  if (!removed) return res.status(404).json({ message: "Notice not found" });
+  if (!removed) return res.status(404).json({ message: "Society update not found" });
   await persistPhase1State();
-  return res.json({ message: "Notice deleted", item: removed });
+  return res.json({ message: "Society update deleted", item: removed });
 });
 
-router.post("/notices/:id/read", async (req, res) => {
+router.post(["/society-updates/:id/read", "/notices/:id/read"], async (req, res) => {
   const notice = getStore(req).notices.find((n) => n.id === req.params.id);
-  if (!notice) return res.status(404).json({ message: "Notice not found" });
+  if (!notice) return res.status(404).json({ message: "Society update not found" });
   if (!notice.readBy.includes(req.user.id)) notice.readBy.push(req.user.id);
   touch(notice);
   await persistPhase1State();
