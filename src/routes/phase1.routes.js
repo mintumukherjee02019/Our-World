@@ -325,12 +325,35 @@ router.get("/payments/:id", async (req, res) => {
 });
 
 router.post("/payments", async (req, res) => {
-  const { type, amount, month, dueDate, status } = req.body;
-  if (!type || amount === undefined || !month) {
-    return res.status(400).json({ message: "type, amount, month are required" });
+  const { type, amount, month, dueDate, status, assigneeScope, assigneeUserIds, assigneeNames } =
+    req.body;
+  if (!type || amount === undefined) {
+    return res.status(400).json({ message: "type and amount are required" });
   }
   const normalizedType = String(type || "").trim().toLowerCase();
-  const normalizedMonth = String(month || "").trim();
+  const isMaintenance = normalizedType === "maintenance";
+  const isMiscType = normalizedType === "other amount" || normalizedType === "misc amount";
+  let normalizedMonth = String(month || "").trim();
+  if (isMaintenance && !normalizedMonth) {
+    return res.status(400).json({ message: "month is required for maintenance" });
+  }
+  if (!isMaintenance) {
+    if (!dueDate) {
+      return res.status(400).json({ message: "dueDate is required for misc amount" });
+    }
+    const due = new Date(String(dueDate));
+    if (Number.isNaN(due.getTime())) {
+      return res.status(400).json({ message: "dueDate must be valid" });
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (due <= today) {
+      return res.status(400).json({ message: "dueDate must be a future date" });
+    }
+    if (!normalizedMonth) {
+      normalizedMonth = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}`;
+    }
+  }
   if (normalizedType === "maintenance") {
     const duplicate = getStore(req).payments.find(
       (payment) =>
@@ -345,11 +368,18 @@ router.post("/payments", async (req, res) => {
   }
   const item = {
     id: createId("p"),
-    type,
+    type: isMiscType ? "Misc Amount" : type,
     amount: Number(amount),
     month: normalizedMonth,
     dueDate: dueDate || null,
     status: status || "Pending",
+    assigneeScope: String(assigneeScope || "all").trim().toLowerCase(),
+    assigneeUserIds: Array.isArray(assigneeUserIds)
+      ? assigneeUserIds.map((value) => String(value).trim()).filter(Boolean)
+      : [],
+    assigneeNames: Array.isArray(assigneeNames)
+      ? assigneeNames.map((value) => String(value).trim()).filter(Boolean)
+      : [],
     paidAt: null,
     transactionRef: null,
     createdByName: String(req.user?.name || "").trim(),
@@ -366,9 +396,27 @@ router.put("/payments/:id", async (req, res) => {
   const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
   const nextType = req.body.type !== undefined ? req.body.type : item.type;
+  const nextTypeNormalized = String(nextType || "").trim().toLowerCase();
+  const isMaintenance = nextTypeNormalized === "maintenance";
+  const isMiscType = nextTypeNormalized === "other amount" || nextTypeNormalized === "misc amount";
   const nextMonth = req.body.month !== undefined ? req.body.month : item.month;
+  const nextDueDate = req.body.dueDate !== undefined ? req.body.dueDate : item.dueDate;
+  if (!isMaintenance) {
+    if (!nextDueDate) {
+      return res.status(400).json({ message: "dueDate is required for misc amount" });
+    }
+    const due = new Date(String(nextDueDate));
+    if (Number.isNaN(due.getTime())) {
+      return res.status(400).json({ message: "dueDate must be valid" });
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (due <= today) {
+      return res.status(400).json({ message: "dueDate must be a future date" });
+    }
+  }
   if (
-    String(nextType || "").trim().toLowerCase() === "maintenance" &&
+    isMaintenance &&
     String(nextMonth || "").trim()
   ) {
     const duplicate = getStore(req).payments.find(
@@ -387,6 +435,28 @@ router.put("/payments/:id", async (req, res) => {
   allowed.forEach((key) => {
     if (req.body[key] !== undefined) item[key] = key === "amount" ? Number(req.body[key]) : req.body[key];
   });
+  if (!isMaintenance && !String(item.month || "").trim() && item.dueDate) {
+    const due = new Date(String(item.dueDate));
+    if (!Number.isNaN(due.getTime())) {
+      item.month = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}`;
+    }
+  }
+  if (isMiscType && req.body.type !== undefined) {
+    item.type = "Misc Amount";
+  }
+  if (req.body.assigneeScope !== undefined) {
+    item.assigneeScope = String(req.body.assigneeScope || "all").trim().toLowerCase();
+  }
+  if (req.body.assigneeUserIds !== undefined) {
+    item.assigneeUserIds = Array.isArray(req.body.assigneeUserIds)
+      ? req.body.assigneeUserIds.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+  }
+  if (req.body.assigneeNames !== undefined) {
+    item.assigneeNames = Array.isArray(req.body.assigneeNames)
+      ? req.body.assigneeNames.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+  }
   touch(item);
   await persistPhase1State();
   return res.json({ message: "Payment updated", item });
