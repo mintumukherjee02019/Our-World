@@ -6,7 +6,7 @@ const dashboardPayload = {
     residentName: "Abhishek",
   },
   features: [
-    { id: "maintenance", title: "Pay Maintenance", tag: null, color: "pink" },
+    { id: "maintenance", title: "Pay Dues", tag: null, color: "pink" },
     { id: "visitors", title: "Visitors", tag: "New", color: "lavender" },
     { id: "notices", title: "Notices", tag: "New*", color: "rose" },
     { id: "complaints", title: "Complaints", tag: "New", color: "mint" },
