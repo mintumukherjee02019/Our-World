@@ -185,6 +185,13 @@ const attachPaymentCreatorDetails = async (payment = {}) => {
       .select("userId fullName")
       .lean();
   }
+  const normalizedType = String(payment.type || "").trim().toLowerCase();
+  const isMiscType = normalizedType === "misc amount" || normalizedType === "other amount";
+  const normalizedAssigneeScope = String(
+    payment.assigneeScope || (isMiscType ? "all" : "")
+  )
+    .trim()
+    .toLowerCase();
 
   return {
     ...payment,
@@ -195,6 +202,13 @@ const attachPaymentCreatorDetails = async (payment = {}) => {
         : null),
     createdByName:
       String(user?.fullName || payment.createdByName || "").trim(),
+    assigneeScope: normalizedAssigneeScope,
+    assigneeUserIds: Array.isArray(payment.assigneeUserIds)
+      ? payment.assigneeUserIds.map((value) => String(value).trim()).filter(Boolean)
+      : [],
+    assigneeNames: Array.isArray(payment.assigneeNames)
+      ? payment.assigneeNames.map((value) => String(value).trim()).filter(Boolean)
+      : [],
   };
 };
 
