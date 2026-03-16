@@ -120,6 +120,7 @@ const buildCreationAudit = (req) => ({
 });
 
 const normalizeStatusValue = (value) => String(value || "").trim().toLowerCase();
+const normalizeComparableText = (value) => String(value || "").trim().toLowerCase();
 
 const buildBookingApprovalAuditEntry = (req, action) => ({
   action,
@@ -938,6 +939,29 @@ router.post("/bookings", async (req, res) => {
     updatedAt: nowIso(),
     ...buildCreationAudit(req),
   };
+  if (item.isBookingRequest && item.date && item.slot) {
+    const requestedAmenity = normalizeComparableText(item.amenity);
+    const requestedDate = String(item.date).trim();
+    const requestedSlot = normalizeComparableText(item.slot);
+    const conflictingBooking = getStore(req).amenityBookings.find((booking) => {
+      if (!parseBool(booking.isBookingRequest, false)) return false;
+      const bookingAmenity = normalizeComparableText(booking.amenity);
+      const bookingDate = String(booking.date || "").trim();
+      const bookingSlot = normalizeComparableText(booking.slot);
+      if (!bookingAmenity || !bookingDate || !bookingSlot) return false;
+      if (bookingAmenity !== requestedAmenity) return false;
+      if (bookingDate !== requestedDate) return false;
+      if (bookingSlot !== requestedSlot) return false;
+      const normalizedStatus = normalizeStatusValue(booking.status);
+      return normalizedStatus !== "cancelled" && normalizedStatus !== "deleted";
+    });
+    if (conflictingBooking) {
+      return res.status(409).json({
+        message:
+          "Amenity already booked for chosen slot and date please try other slot/ date.",
+      });
+    }
+  }
   getStore(req).amenityBookings.unshift(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Booking request submitted", item });
