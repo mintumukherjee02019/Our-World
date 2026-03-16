@@ -121,6 +121,25 @@ const buildCreationAudit = (req) => ({
 
 const normalizeStatusValue = (value) => String(value || "").trim().toLowerCase();
 const normalizeComparableText = (value) => String(value || "").trim().toLowerCase();
+const normalizeTimeLabel = (value) => {
+  const raw = String(value || "").trim().replace(/\s+/g, " ");
+  const match = raw.match(/^0?(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  if (!match) return raw.toUpperCase();
+  const hour = Number(match[1] || 0);
+  const minute = match[2] || "00";
+  const meridiem = String(match[3] || "").toUpperCase();
+  const normalizedHour = hour <= 0 ? "12" : String(hour);
+  return `${normalizedHour}:${minute} ${meridiem}`;
+};
+const normalizeSlotValue = (slot) => {
+  const compact = String(slot || "").trim().replace(/\s+/g, " ");
+  if (!compact.includes("-")) return normalizeComparableText(compact);
+  const parts = compact.split("-");
+  if (parts.length < 2) return normalizeComparableText(compact);
+  const from = normalizeTimeLabel(parts[0]);
+  const to = normalizeTimeLabel(parts.slice(1).join("-"));
+  return normalizeComparableText(`${from} - ${to}`);
+};
 
 const buildBookingApprovalAuditEntry = (req, action) => ({
   action,
@@ -942,12 +961,12 @@ router.post("/bookings", async (req, res) => {
   if (item.isBookingRequest && item.date && item.slot) {
     const requestedAmenity = normalizeComparableText(item.amenity);
     const requestedDate = String(item.date).trim();
-    const requestedSlot = normalizeComparableText(item.slot);
+    const requestedSlot = normalizeSlotValue(item.slot);
     const conflictingBooking = getStore(req).amenityBookings.find((booking) => {
       if (!parseBool(booking.isBookingRequest, false)) return false;
       const bookingAmenity = normalizeComparableText(booking.amenity);
       const bookingDate = String(booking.date || "").trim();
-      const bookingSlot = normalizeComparableText(booking.slot);
+      const bookingSlot = normalizeSlotValue(booking.slot);
       if (!bookingAmenity || !bookingDate || !bookingSlot) return false;
       if (bookingAmenity !== requestedAmenity) return false;
       if (bookingDate !== requestedDate) return false;
