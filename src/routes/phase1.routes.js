@@ -164,6 +164,8 @@ const mapComplaintForResponse = (req, complaint = {}) => {
     likeCount: likes.length,
     likedByCurrentUser: currentUserId ? likes.includes(currentUserId) : false,
     commentsCount: comments.length,
+    resolvedBy: String(complaint.resolutionUpdatedBy || "").trim(),
+    resolvedAt: complaint.resolutionUpdatedAt || null,
   };
 };
 
@@ -619,9 +621,15 @@ router.patch("/complaints/:id/status", async (req, res) => {
   const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   if (!req.body.status) return res.status(400).json({ message: "status is required" });
-  item.status = normalizeComplaintStatus(req.body.status);
-  if (req.body.resolutionComment !== undefined) {
-    const resolutionComment = String(req.body.resolutionComment || "").trim();
+  const nextStatus = normalizeComplaintStatus(req.body.status);
+  const resolutionComment = String(req.body.resolutionComment || "").trim();
+  if (nextStatus === "Resolved" && !resolutionComment) {
+    return res.status(400).json({
+      message: "resolutionComment is required when marking complaint as Resolved",
+    });
+  }
+  item.status = nextStatus;
+  if (req.body.resolutionComment !== undefined || nextStatus === "Resolved") {
     item.resolutionComment = resolutionComment;
     item.resolutionUpdatedAt = nowIso();
     item.resolutionUpdatedBy = String(req.user?.name || "").trim() || "Admin";
