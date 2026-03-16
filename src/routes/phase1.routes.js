@@ -128,6 +128,45 @@ const buildBookingApprovalAuditEntry = (req, action) => ({
   actedAt: nowIso(),
 });
 
+const normalizeComplaintStatus = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "inprogress" || raw === "in progress") return "In Progress";
+  if (raw === "resolved") return "Resolved";
+  if (raw === "open" || raw === "todo" || raw === "to do") return "To Do";
+  return "To Do";
+};
+
+const isAdminRequest = async (req) => {
+  const roleFromToken = String(req.user?.role || "").trim().toLowerCase();
+  if (roleFromToken === "admin") return true;
+  const userFilter = req.user?.userId
+    ? { userId: Number(req.user.userId) }
+    : req.user?.mobile
+      ? { phone: String(req.user.mobile).trim() }
+      : null;
+  if (!userFilter) return false;
+  const user = await User.findOne(userFilter).select("role").lean();
+  return String(user?.role || "").trim().toLowerCase() === "admin";
+};
+
+const mapComplaintForResponse = (req, complaint = {}) => {
+  const likes = Array.isArray(complaint.likes)
+    ? complaint.likes.map((v) => String(v).trim()).filter(Boolean)
+    : [];
+  const comments = Array.isArray(complaint.comments) ? complaint.comments : [];
+  const currentUserId = String(req.user?.id || "").trim();
+  return {
+    ...complaint,
+    status: normalizeComplaintStatus(complaint.status),
+    filedByName: String(
+      complaint.filedByName || complaint.createdByName || complaint.assignedTo || "Resident"
+    ).trim(),
+    likeCount: likes.length,
+    likedByCurrentUser: currentUserId ? likes.includes(currentUserId) : false,
+    commentsCount: comments.length,
+  };
+};
+
 const resolveBookingRequesterFilter = (booking = {}) => {
   if (Number.isFinite(Number(booking.createdByUserId))) {
     return { userId: Number(booking.createdByUserId) };
@@ -512,17 +551,23 @@ router.get("/payments/:id/receipt", (req, res) => {
 // Complaints CRUD + comments CRUD
 router.get("/complaints", (req, res) => {
   const status = req.query.status;
-  let items = getStore(req).complaints;
+  let items = [...getStore(req).complaints];
   if (status && status !== "All") {
-    items = items.filter((c) => c.status.toLowerCase() === String(status).toLowerCase());
+    const normalizedStatus = normalizeComplaintStatus(status);
+    items = items.filter((c) => normalizeComplaintStatus(c.status) === normalizedStatus);
   }
-  return res.json({ items });
+  items.sort((a, b) => {
+    const aTime = Date.parse(a.createdAt || "") || 0;
+    const bTime = Date.parse(b.createdAt || "") || 0;
+    return bTime - aTime;
+  });
+  return res.json({ items: items.map((item) => mapComplaintForResponse(req, item)) });
 });
 
 router.get("/complaints/:id", (req, res) => {
   const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
-  return res.json({ item });
+  return res.json({ item: mapComplaintForResponse(req, item) });
 });
 
 router.post("/complaints", async (req, res) => {
@@ -535,17 +580,23 @@ router.post("/complaints", async (req, res) => {
     title,
     category,
     details,
-    status: status || "Open",
+    status: normalizeComplaintStatus(status || "To Do"),
     assignedTo: assignedTo || "Pending Assignment",
     createdAt: nowIso(),
     updatedAt: nowIso(),
     createdBy: req.user.id,
+    createdByName: String(req.user?.name || "").trim(),
+    filedByName: String(req.user?.name || "").trim() || "Resident",
+    likes: [],
+    resolutionComment: "",
+    resolutionUpdatedAt: null,
+    resolutionUpdatedBy: "",
     comments: [],
     ...buildCreationAudit(req),
   };
   getStore(req).complaints.unshift(item);
   await persistPhase1State();
-  return res.status(201).json({ message: "Complaint submitted", item });
+  return res.status(201).json({ message: "Complaint submitted", item: mapComplaintForResponse(req, item) });
 });
 
 router.put("/complaints/:id", async (req, res) => {
@@ -561,13 +612,36 @@ router.put("/complaints/:id", async (req, res) => {
 });
 
 router.patch("/complaints/:id/status", async (req, res) => {
+  const isAdmin = await isAdminRequest(req);
+  if (!isAdmin) {
+    return res.status(403).json({ message: "Only admin can update complaint status" });
+  }
   const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
   if (!req.body.status) return res.status(400).json({ message: "status is required" });
-  item.status = req.body.status;
+  item.status = normalizeComplaintStatus(req.body.status);
+  if (req.body.resolutionComment !== undefined) {
+    const resolutionComment = String(req.body.resolutionComment || "").trim();
+    item.resolutionComment = resolutionComment;
+    item.resolutionUpdatedAt = nowIso();
+    item.resolutionUpdatedBy = String(req.user?.name || "").trim() || "Admin";
+    if (resolutionComment) {
+      if (!Array.isArray(item.comments)) item.comments = [];
+      item.comments.push({
+        id: createId("cc"),
+        by: item.resolutionUpdatedBy,
+        byUserId: req.user.id,
+        message: resolutionComment,
+        type: "resolution",
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        ...buildCreationAudit(req),
+      });
+    }
+  }
   touch(item);
   await persistPhase1State();
-  return res.json({ message: "Complaint status updated", item });
+  return res.json({ message: "Complaint status updated", item: mapComplaintForResponse(req, item) });
 });
 
 router.delete("/complaints/:id", async (req, res) => {
@@ -586,13 +660,21 @@ router.get("/complaints/:id/comments", (req, res) => {
 router.post("/complaints/:id/comments", async (req, res) => {
   const item = getStore(req).complaints.find((c) => c.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Complaint not found" });
-  const { message } = req.body;
+  const { message, type } = req.body;
   if (!message) return res.status(400).json({ message: "message is required" });
+  const commentType = String(type || "comment").trim().toLowerCase();
+  if (commentType === "resolution") {
+    const isAdmin = await isAdminRequest(req);
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Only admin can add resolution comment" });
+    }
+  }
   const comment = {
     id: createId("cc"),
     by: req.user.name || "Resident",
     byUserId: req.user.id,
     message,
+    type: commentType === "resolution" ? "resolution" : "comment",
     createdAt: nowIso(),
     updatedAt: nowIso(),
     ...buildCreationAudit(req),
@@ -601,6 +683,26 @@ router.post("/complaints/:id/comments", async (req, res) => {
   touch(item);
   await persistPhase1State();
   return res.status(201).json({ message: "Comment added", item: comment });
+});
+
+router.post("/complaints/:id/like", async (req, res) => {
+  const item = getStore(req).complaints.find((c) => c.id === req.params.id);
+  if (!item) return res.status(404).json({ message: "Complaint not found" });
+  if (!Array.isArray(item.likes)) item.likes = [];
+  const userId = String(req.user?.id || "").trim();
+  if (!userId) return res.status(400).json({ message: "Unable to resolve user id" });
+  const index = item.likes.findIndex((id) => String(id).trim() === userId);
+  if (index >= 0) {
+    item.likes.splice(index, 1);
+  } else {
+    item.likes.push(userId);
+  }
+  touch(item);
+  await persistPhase1State();
+  return res.json({
+    message: "Like updated",
+    item: mapComplaintForResponse(req, item),
+  });
 });
 
 router.put("/complaints/:id/comments/:commentId", async (req, res) => {
