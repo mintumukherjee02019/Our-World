@@ -8,7 +8,7 @@ const dashboardPayload = {
   features: [
     { id: "maintenance", title: "Pay Dues", tag: null, color: "pink" },
     { id: "visitors", title: "Visitors", tag: "New", color: "lavender" },
-    { id: "notices", title: "Notices", tag: "New*", color: "rose" },
+    { id: "notices", title: "Amenities", tag: "New*", color: "rose" },
     { id: "complaints", title: "Complaints", tag: "New", color: "mint" },
     { id: "marketplace", title: "Marketplace", tag: "New", color: "peach" },
     { id: "nearby-deals", title: "Nearby Deals", tag: "Hot", color: "sky" },
