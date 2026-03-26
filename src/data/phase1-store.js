@@ -197,6 +197,17 @@ const defaultPhase1Store = {
       createdAt: "2026-02-10T11:00:00.000Z",
     },
   ],
+  emergencyContacts: [
+    {
+      id: "ec_1",
+      name: "Gate Security",
+      phone: "9876500001",
+      type: "Security",
+      description: "Main gate security desk",
+      createdAt: "2026-02-18T09:15:00.000Z",
+      updatedAt: "2026-02-18T09:15:00.000Z",
+    },
+  ],
 };
 
 let liveStore = JSON.parse(JSON.stringify(defaultPhase1Store));

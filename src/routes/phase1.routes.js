@@ -1041,6 +1041,90 @@ router.delete("/bookings/:id", async (req, res) => {
   return res.json({ message: "Booking deleted", item: removed });
 });
 
+// Emergency contacts CRUD
+router.get("/emergency-contacts", (req, res) => {
+  const items = [...(getStore(req).emergencyContacts || [])];
+  items.sort((a, b) => {
+    const aTime = Date.parse(String(a.updatedAt || a.createdAt || 0)) || 0;
+    const bTime = Date.parse(String(b.updatedAt || b.createdAt || 0)) || 0;
+    return bTime - aTime;
+  });
+  return res.json({ items });
+});
+
+router.get("/emergency-contacts/:id", (req, res) => {
+  const item = (getStore(req).emergencyContacts || []).find((c) => c.id === req.params.id);
+  if (!item) return res.status(404).json({ message: "Contact not found" });
+  return res.json({ item });
+});
+
+router.post("/emergency-contacts", async (req, res) => {
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ message: "Only admin can add contacts" });
+  }
+  const name = String(req.body.name || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const type = String(req.body.type || "").trim();
+  const description = String(req.body.description || "").trim();
+  if (!name || !phone || !type) {
+    return res.status(400).json({ message: "name, phone and type are required" });
+  }
+  if (!/^\d{10}$/.test(phone)) {
+    return res.status(400).json({ message: "phone must be a 10 digit number" });
+  }
+  const now = nowIso();
+  const item = {
+    id: createId("ec"),
+    name,
+    phone,
+    type,
+    description,
+    createdAt: now,
+    updatedAt: now,
+    ...buildCreationAudit(req),
+    createdByName: String(req.user?.name || "").trim() || "Unknown admin",
+  };
+  if (!Array.isArray(getStore(req).emergencyContacts)) {
+    getStore(req).emergencyContacts = [];
+  }
+  getStore(req).emergencyContacts.unshift(item);
+  await persistPhase1State();
+  return res.status(201).json({ message: "Contact added", item });
+});
+
+router.put("/emergency-contacts/:id", async (req, res) => {
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ message: "Only admin can update contacts" });
+  }
+  const item = (getStore(req).emergencyContacts || []).find((c) => c.id === req.params.id);
+  if (!item) return res.status(404).json({ message: "Contact not found" });
+  const allowed = ["name", "phone", "type", "description"];
+  allowed.forEach((key) => {
+    if (req.body[key] !== undefined) {
+      item[key] = String(req.body[key] || "").trim();
+    }
+  });
+  if (!String(item.name || "").trim() || !String(item.phone || "").trim() || !String(item.type || "").trim()) {
+    return res.status(400).json({ message: "name, phone and type are required" });
+  }
+  if (!/^\d{10}$/.test(String(item.phone || "").trim())) {
+    return res.status(400).json({ message: "phone must be a 10 digit number" });
+  }
+  touch(item);
+  await persistPhase1State();
+  return res.json({ message: "Contact updated", item });
+});
+
+router.delete("/emergency-contacts/:id", async (req, res) => {
+  if (!(await isAdminRequest(req))) {
+    return res.status(403).json({ message: "Only admin can delete contacts" });
+  }
+  const removed = removeById(getStore(req).emergencyContacts || [], req.params.id);
+  if (!removed) return res.status(404).json({ message: "Contact not found" });
+  await persistPhase1State();
+  return res.json({ message: "Contact deleted", item: removed });
+});
+
 // Documents CRUD
 router.get("/documents", (req, res) => {
   return res.json({ items: getStore(req).documents });
