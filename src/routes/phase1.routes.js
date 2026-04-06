@@ -555,6 +555,63 @@ router.post("/payments/:id/pay", async (req, res) => {
   return res.json({ message: "Payment successful", item: payment });
 });
 
+router.post("/payments/checkout", async (req, res) => {
+  const paymentIds = Array.isArray(req.body?.paymentIds)
+    ? req.body.paymentIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (paymentIds.length === 0) {
+    return res.status(400).json({ message: "paymentIds are required" });
+  }
+
+  const configuredStatus = String(process.env.DUMMY_PAYMENT_GATEWAY_STATUS || "success")
+    .trim()
+    .toLowerCase();
+  const normalizedStatus =
+    configuredStatus === "success" || configuredStatus === "failed" || configuredStatus === "in-progress"
+      ? configuredStatus
+      : "success";
+  const paymentLink =
+    String(process.env.DUMMY_PAYMENT_GATEWAY_LINK || "https://dummy-pay.local/checkout").trim();
+
+  const store = getStore(req);
+  const targetPayments = store.payments.filter((payment) => paymentIds.includes(payment.id));
+  if (targetPayments.length === 0) {
+    return res.status(404).json({ message: "No matching payments found" });
+  }
+
+  const alreadyPaidIds = targetPayments
+    .filter((payment) => String(payment.status || "").trim().toLowerCase() === "paid")
+    .map((payment) => payment.id);
+  const processable = targetPayments.filter((payment) => !alreadyPaidIds.includes(payment.id));
+
+  const paidIds = [];
+  if (normalizedStatus === "success") {
+    processable.forEach((payment) => {
+      payment.status = "Paid";
+      payment.paidAt = nowIso();
+      payment.transactionRef = `TXN-OW-${Math.floor(Math.random() * 1e5)}`;
+      touch(payment);
+      paidIds.push(payment.id);
+    });
+    await persistPhase1State();
+  }
+
+  return res.json({
+    message:
+      normalizedStatus === "success"
+        ? "Payment successful"
+        : normalizedStatus === "failed"
+          ? "Payment failed"
+          : "Payment is in progress",
+    status: normalizedStatus,
+    statusComment:
+      "Allowed DUMMY_PAYMENT_GATEWAY_STATUS values: success, failed, in-progress",
+    paymentLink,
+    paidIds,
+    alreadyPaidIds,
+  });
+});
+
 router.get("/payments/:id/receipt", (req, res) => {
   const payment = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!payment) return res.status(404).json({ message: "Payment not found" });
