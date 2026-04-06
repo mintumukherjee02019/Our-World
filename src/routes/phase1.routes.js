@@ -279,6 +279,8 @@ const buildPaymentTransactionRecord = ({
   paymentIds = [],
   payments = [],
   message = "",
+  createdByUserId = null,
+  createdByName = "",
 }) => {
   const now = nowIso();
   const normalizedStatus = String(status || "").trim().toLowerCase();
@@ -307,6 +309,8 @@ const buildPaymentTransactionRecord = ({
     totalAmount,
     items,
     transactionDate: now,
+    createdByUserId,
+    createdByName: String(createdByName || "").trim(),
     createdAt: now,
     updatedAt: now,
   };
@@ -504,6 +508,115 @@ router.get("/payments/transactions", (req, res) => {
   return res.json({ items: filtered });
 });
 
+router.get("/payments/maintenance-defaulters", async (req, res) => {
+  const societyId = Number(req.selectedSocietyId);
+  if (!Number.isFinite(societyId)) {
+    return res.status(400).json({ message: "selected society is required" });
+  }
+
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const requestedUserId = String(req.query.userId || "").trim();
+
+  const users = await User.find({
+    societyIds: societyId,
+    isActive: { $ne: false },
+  })
+    .select("userId fullName phone role societyRole flat residenceDetails")
+    .lean();
+
+  const maintenanceRows = getStore(req).payments
+    .filter((payment) => String(payment.type || "").trim().toLowerCase() === "maintenance")
+    .filter((payment) => /^\d{4}-\d{2}$/.test(String(payment.month || "").trim()))
+    .filter((payment) => String(payment.month || "").trim() <= currentMonthKey);
+
+  const monthLatestMap = new Map();
+  maintenanceRows.forEach((row) => {
+    const month = String(row.month || "").trim();
+    const existing = monthLatestMap.get(month);
+    if (!existing) {
+      monthLatestMap.set(month, row);
+      return;
+    }
+    const existingTime = Date.parse(String(existing.createdAt || existing.updatedAt || "")) || 0;
+    const rowTime = Date.parse(String(row.createdAt || row.updatedAt || "")) || 0;
+    if (rowTime >= existingTime) {
+      monthLatestMap.set(month, row);
+    }
+  });
+  const dueMonths = Array.from(monthLatestMap.keys()).sort();
+  const amountByMonth = {};
+  dueMonths.forEach((month) => {
+    const row = monthLatestMap.get(month);
+    amountByMonth[month] = Number(row?.amount || 0);
+  });
+
+  const successfulTransactions = (Array.isArray(getStore(req).paymentTransactions)
+    ? getStore(req).paymentTransactions
+    : []
+  ).filter((txn) => String(txn.status || "").trim().toLowerCase() === "success");
+
+  const paidMonthsByUserId = new Map();
+  successfulTransactions.forEach((txn) => {
+    const payerIdRaw = txn.createdByUserId;
+    const payerId = Number(payerIdRaw);
+    if (!Number.isFinite(payerId)) return;
+    if (!paidMonthsByUserId.has(payerId)) paidMonthsByUserId.set(payerId, new Set());
+    const set = paidMonthsByUserId.get(payerId);
+    const items = Array.isArray(txn.items) ? txn.items : [];
+    items.forEach((line) => {
+      const type = String(line.type || "").trim().toLowerCase();
+      const month = String(line.month || "").trim();
+      if (type !== "maintenance") return;
+      if (!/^\d{4}-\d{2}$/.test(month)) return;
+      if (month > currentMonthKey) return;
+      set.add(month);
+    });
+  });
+
+  const items = [];
+  users.forEach((user) => {
+    const userId = Number(user.userId);
+    if (!Number.isFinite(userId)) return;
+    if (requestedUserId && requestedUserId !== String(userId)) return;
+    const paid = paidMonthsByUserId.get(userId) || new Set();
+    const pendingMonths = dueMonths
+      .filter((month) => !paid.has(month))
+      .map((month) => ({
+        month,
+        amount: Number(amountByMonth[month] || 0),
+      }));
+    const totalPending = pendingMonths.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    items.push({
+      userId,
+      name: String(user.fullName || "").trim() || "User",
+      phone: String(user.phone || "").trim(),
+      role: String(user.role || "").trim(),
+      societyRole: String(user.societyRole || "").trim(),
+      address: String(user.residenceDetails || user.flat || "").trim(),
+      pendingMonths,
+      pendingCount: pendingMonths.length,
+      totalPending,
+    });
+  });
+
+  const defaulters = items.filter((item) => Number(item.totalPending || 0) > 0);
+  const totalPendingAmount = defaulters.reduce(
+    (sum, item) => sum + Number(item.totalPending || 0),
+    0
+  );
+  return res.json({
+    currentMonth: currentMonthKey,
+    monthsConsidered: dueMonths,
+    summary: {
+      totalPendingAmount,
+      defaultersCount: defaulters.length,
+      memberCount: items.length,
+    },
+    items,
+  });
+});
+
 router.get("/payments/:id", async (req, res) => {
   const item = getStore(req).payments.find((p) => p.id === req.params.id);
   if (!item) return res.status(404).json({ message: "Payment not found" });
@@ -671,6 +784,8 @@ router.post("/payments/:id/pay", async (req, res) => {
     paymentIds: [payment.id],
     payments: [payment],
     message: "Payment successful",
+    createdByUserId: resolveCreatorUserId(req),
+    createdByName: String(req.user?.name || "").trim(),
   });
   transaction.transactionRef = payment.transactionRef;
   store.paymentTransactions.unshift(transaction);
@@ -731,6 +846,8 @@ router.post("/payments/checkout", async (req, res) => {
         : normalizedStatus === "failed"
           ? "Payment failed"
           : "Payment is in progress",
+    createdByUserId: resolveCreatorUserId(req),
+    createdByName: String(req.user?.name || "").trim(),
   });
   store.paymentTransactions.unshift(transaction);
   await persistPhase1State();
