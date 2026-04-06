@@ -545,6 +545,7 @@ router.get("/payments/maintenance-defaulters", async (req, res) => {
     }
   });
   const dueMonths = Array.from(monthLatestMap.keys()).sort();
+  const oldestMonth = dueMonths.length > 0 ? dueMonths[0] : null;
   const amountByMonth = {};
   dueMonths.forEach((month) => {
     const row = monthLatestMap.get(month);
@@ -608,10 +609,13 @@ router.get("/payments/maintenance-defaulters", async (req, res) => {
   return res.json({
     currentMonth: currentMonthKey,
     monthsConsidered: dueMonths,
+    oldestMonth,
     summary: {
       totalPendingAmount,
       defaultersCount: defaulters.length,
       memberCount: items.length,
+      fromMonth: oldestMonth,
+      toMonth: currentMonthKey,
     },
     items,
   });
