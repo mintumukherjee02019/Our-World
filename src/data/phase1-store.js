@@ -47,6 +47,7 @@ const defaultPhase1Store = {
       transactionRef: "TXN-OW-10021",
     },
   ],
+  paymentTransactions: [],
   complaints: [
     {
       id: "c_1",

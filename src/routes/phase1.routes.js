@@ -273,6 +273,45 @@ const attachPaymentCreatorDetails = async (payment = {}) => {
   };
 };
 
+const buildPaymentTransactionRecord = ({
+  status,
+  paymentLink = "",
+  paymentIds = [],
+  payments = [],
+  message = "",
+}) => {
+  const now = nowIso();
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const safePayments = Array.isArray(payments) ? payments : [];
+  const transactionRef =
+    normalizedStatus === "success"
+      ? `TXN-OW-${Math.floor(Math.random() * 1e5)}`
+      : `CHK-OW-${Math.floor(Math.random() * 1e5)}`;
+  const items = safePayments.map((payment) => ({
+    paymentId: payment.id,
+    type: String(payment.type || "").trim(),
+    month: String(payment.month || "").trim(),
+    amount: Number(payment.amount || 0),
+    status: String(payment.status || "").trim(),
+  }));
+  const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  return {
+    id: createId("ptx"),
+    transactionRef,
+    status: normalizedStatus,
+    message: String(message || "").trim(),
+    paymentLink: String(paymentLink || "").trim(),
+    paymentIds: Array.isArray(paymentIds)
+      ? paymentIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+    totalAmount,
+    items,
+    transactionDate: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
 // Dashboard
 router.get("/dashboard", (req, res) => {
   const store = getStore(req);
@@ -391,6 +430,35 @@ router.get("/payments/maintenance-years", (req, res) => {
     )
   ).sort((a, b) => a - b);
   return res.json({ years });
+});
+
+router.get("/payments/transactions", (req, res) => {
+  const fromRaw = String(req.query.from || "").trim();
+  const toRaw = String(req.query.to || "").trim();
+  const fromDate = fromRaw ? new Date(`${fromRaw}T00:00:00.000Z`) : null;
+  const toDate = toRaw ? new Date(`${toRaw}T23:59:59.999Z`) : null;
+  if (fromRaw && Number.isNaN(fromDate?.getTime?.() ?? NaN)) {
+    return res.status(400).json({ message: "from must be YYYY-MM-DD" });
+  }
+  if (toRaw && Number.isNaN(toDate?.getTime?.() ?? NaN)) {
+    return res.status(400).json({ message: "to must be YYYY-MM-DD" });
+  }
+
+  const transactions = Array.isArray(getStore(req).paymentTransactions)
+    ? getStore(req).paymentTransactions
+    : [];
+  const filtered = transactions.filter((item) => {
+    const stamp = Date.parse(String(item.transactionDate || item.createdAt || "")) || 0;
+    if (fromDate && stamp < fromDate.getTime()) return false;
+    if (toDate && stamp > toDate.getTime()) return false;
+    return true;
+  });
+  filtered.sort((a, b) => {
+    const aTime = Date.parse(String(a.transactionDate || a.createdAt || "")) || 0;
+    const bTime = Date.parse(String(b.transactionDate || b.createdAt || "")) || 0;
+    return bTime - aTime;
+  });
+  return res.json({ items: filtered });
 });
 
 router.get("/payments/:id", async (req, res) => {
@@ -551,6 +619,18 @@ router.post("/payments/:id/pay", async (req, res) => {
   payment.paidAt = nowIso();
   payment.transactionRef = `TXN-OW-${Math.floor(Math.random() * 1e5)}`;
   touch(payment);
+  const store = getStore(req);
+  if (!Array.isArray(store.paymentTransactions)) {
+    store.paymentTransactions = [];
+  }
+  const transaction = buildPaymentTransactionRecord({
+    status: "success",
+    paymentIds: [payment.id],
+    payments: [payment],
+    message: "Payment successful",
+  });
+  transaction.transactionRef = payment.transactionRef;
+  store.paymentTransactions.unshift(transaction);
   await persistPhase1State();
   return res.json({ message: "Payment successful", item: payment });
 });
@@ -593,8 +673,24 @@ router.post("/payments/checkout", async (req, res) => {
       touch(payment);
       paidIds.push(payment.id);
     });
-    await persistPhase1State();
   }
+  if (!Array.isArray(store.paymentTransactions)) {
+    store.paymentTransactions = [];
+  }
+  const transaction = buildPaymentTransactionRecord({
+    status: normalizedStatus,
+    paymentLink,
+    paymentIds,
+    payments: normalizedStatus === "success" ? processable : targetPayments,
+    message:
+      normalizedStatus === "success"
+        ? "Payment successful"
+        : normalizedStatus === "failed"
+          ? "Payment failed"
+          : "Payment is in progress",
+  });
+  store.paymentTransactions.unshift(transaction);
+  await persistPhase1State();
 
   return res.json({
     message:
@@ -609,6 +705,12 @@ router.post("/payments/checkout", async (req, res) => {
     paymentLink,
     paidIds,
     alreadyPaidIds,
+    transaction: {
+      id: transaction.id,
+      transactionRef: transaction.transactionRef,
+      transactionDate: transaction.transactionDate,
+      totalAmount: transaction.totalAmount,
+    },
   });
 });
 
