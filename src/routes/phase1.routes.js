@@ -447,12 +447,55 @@ router.get("/payments/transactions", (req, res) => {
   const transactions = Array.isArray(getStore(req).paymentTransactions)
     ? getStore(req).paymentTransactions
     : [];
-  const filtered = transactions.filter((item) => {
+  const filteredLogged = transactions.filter((item) => {
     const stamp = Date.parse(String(item.transactionDate || item.createdAt || "")) || 0;
     if (fromDate && stamp < fromDate.getTime()) return false;
     if (toDate && stamp > toDate.getTime()) return false;
     return true;
   });
+  const loggedPaymentIds = new Set(
+    filteredLogged
+      .flatMap((item) => (Array.isArray(item.items) ? item.items : []))
+      .map((line) => String(line.paymentId || "").trim())
+      .filter(Boolean)
+  );
+
+  const paidPayments = Array.isArray(getStore(req).payments)
+    ? getStore(req).payments.filter((payment) => {
+        if (String(payment.status || "").trim().toLowerCase() !== "paid") return false;
+        if (!payment.paidAt) return false;
+        const stamp = Date.parse(String(payment.paidAt || "")) || 0;
+        if (fromDate && stamp < fromDate.getTime()) return false;
+        if (toDate && stamp > toDate.getTime()) return false;
+        return true;
+      })
+    : [];
+
+  const synthesized = paidPayments
+    .filter((payment) => !loggedPaymentIds.has(String(payment.id || "").trim()))
+    .map((payment) => ({
+      id: `ptx_legacy_${payment.id}`,
+      transactionRef: String(payment.transactionRef || `TXN-OW-LEGACY-${payment.id}`).trim(),
+      status: "success",
+      message: "Imported from paid payment history",
+      paymentLink: "",
+      paymentIds: [String(payment.id || "").trim()],
+      totalAmount: Number(payment.amount || 0),
+      items: [
+        {
+          paymentId: String(payment.id || "").trim(),
+          type: String(payment.type || "").trim(),
+          month: String(payment.month || "").trim(),
+          amount: Number(payment.amount || 0),
+          status: String(payment.status || "").trim(),
+        },
+      ],
+      transactionDate: String(payment.paidAt || payment.updatedAt || payment.createdAt || nowIso()),
+      createdAt: String(payment.paidAt || payment.updatedAt || payment.createdAt || nowIso()),
+      updatedAt: String(payment.updatedAt || payment.paidAt || payment.createdAt || nowIso()),
+    }));
+
+  const filtered = [...filteredLogged, ...synthesized];
   filtered.sort((a, b) => {
     const aTime = Date.parse(String(a.transactionDate || a.createdAt || "")) || 0;
     const bTime = Date.parse(String(b.transactionDate || b.createdAt || "")) || 0;
